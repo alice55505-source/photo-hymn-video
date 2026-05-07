@@ -369,6 +369,14 @@
   <div class="card">
     <div class="step-label"><div class="step-num">3</div>製作影片</div>
     <h2>確認後開始製作</h2>
+    <div style="margin-bottom:20px;">
+      <label style="display:block;font-weight:700;color:var(--muted);margin-bottom:8px;letter-spacing:1px;">片頭字幕（可不填）</label>
+      <input type="text" id="intro-title" maxlength="24"
+        placeholder="例：2024年生命回顧"
+        style="width:100%;padding:12px 16px;font-size:1.2rem;font-family:inherit;border:2px solid var(--border);border-radius:12px;outline:none;background:var(--bg);"
+        oninput="updateSummary()">
+      <p class="hint" style="margin-top:6px;">填寫後影片最前面會出現 4 秒置中大字片頭</p>
+    </div>
     <div id="summary" style="font-size:1.2rem;color:var(--muted);margin-bottom:18px;line-height:2;"></div>
     <button id="make-btn" disabled>🎬 &nbsp;開始製作影片</button>
     <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
@@ -385,7 +393,7 @@ const MUSIC_TREE_URL = 'https://api.github.com/repos/alice55505-source/easymaker
 const N8N_WEBHOOK    = 'https://n8n.alice55505.dpdns.org/webhook/slideshow';
 const N8N_STATUS_URL = 'https://n8n.alice55505.dpdns.org/webhook/slideshow-status';
 // 分類順序
-const CATEGORY_ORDER = ['福音','愛','同伴','牧養','召會生活','親近主','患難安慰','台語詩歌'];
+const CATEGORY_ORDER = ['傳福音','福音','愛','同伴','牧養','奉獻','召會生活','親近主','患難安慰','台語詩歌'];
 // ────────────────────────────────────────────────────
 
 // photos[i] = { file, dataUrl, name, text }
@@ -647,6 +655,8 @@ function updateSummary() {
     if (withText > 0) lines.push(`✍️ 有文字：${withText} 張`);
   }
   if (selectedMusic) lines.push(`🎵 音樂：${selectedMusic.name.replace(/\.mp3$/i,'')}`);
+  const introTitle = (document.getElementById('intro-title')?.value || '').trim();
+  if (introTitle) lines.push(`🎬 片頭字幕：${introTitle}`);
   s.innerHTML = lines.join('<br>') || '（請先完成步驟 1 和 2）';
 }
 
@@ -683,6 +693,7 @@ document.getElementById('make-btn').addEventListener('click', async () => {
       photos: photoPayload,
       musicUrl: selectedMusic.url,
       musicName: selectedMusic.name,
+      introTitle: (document.getElementById('intro-title')?.value || '').trim(),
       photoCount: photos.length,
       duration: photos.length * 4
     };
