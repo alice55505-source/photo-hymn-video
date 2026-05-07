@@ -219,6 +219,8 @@
     display: flex; align-items: center; gap: 14px;
     transition: border-color .2s, background .2s;
     background: #fffaf5;
+    position: relative;
+    overflow: hidden;
   }
   .music-card:hover { border-color: var(--accent2); background: #fff5ec; }
   .music-card.selected { border-color: var(--accent); background: #fff0e8; }
@@ -226,7 +228,17 @@
   .music-name { font-size: 1.3rem; font-weight: 700; }
   .music-card .play-btn {
     margin-left: auto; background: none; border: none;
-    font-size: 1.6rem; cursor: pointer; color: var(--accent2);
+    font-size: 1.5rem; cursor: pointer; color: var(--accent2);
+    min-width: 64px; display: flex; align-items: center;
+    justify-content: center; gap: 4px; white-space: nowrap;
+  }
+  .play-btn .cd { font-size: .85rem; opacity: .8; }
+  .music-preview-bar {
+    position: absolute; bottom: 0; left: 0;
+    height: 4px; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 0 2px 0 14px;
+    pointer-events: none;
   }
   .music-loading { font-size: 1.3rem; color: var(--muted); padding: 16px 0; }
 
@@ -350,6 +362,7 @@
 const MUSIC_BASE     = 'https://raw.githubusercontent.com/alice55505-source/easymaker123/main/music/';
 const MUSIC_LIST_URL = 'https://api.github.com/repos/alice55505-source/easymaker123/contents/music';
 const N8N_WEBHOOK    = 'https://n8n.alice55505.dpdns.org/webhook/slideshow';
+const N8N_STATUS_URL = 'https://n8n.alice55505.dpdns.org/webhook/slideshow-status';
 // ────────────────────────────────────────────────────
 
 // photos[i] = { file, dataUrl, name, text }
@@ -357,6 +370,9 @@ let photos = [];
 let selectedMusic = null;
 let audioPlayer = null;
 let dragSrcIdx = null;
+const PREVIEW_SEC = 20;
+let previewTimerId = null;
+let previewIntervalId = null;
 
 // ── 照片上傳 ──
 const dropZone  = document.getElementById('drop-zone');
@@ -487,7 +503,8 @@ async function loadMusicList() {
       card.innerHTML = `
         <span class="music-icon">🎵</span>
         <div><div class="music-name">${name}</div></div>
-        <button class="play-btn" title="試聽">▶</button>
+        <button class="play-btn" title="試聽 20 秒">▶</button>
+        <div class="music-preview-bar"></div>
       `;
       card.addEventListener('click', e => {
         if (e.target.classList.contains('play-btn')) { togglePlay(card, url, e.target); return; }
@@ -507,17 +524,41 @@ function selectMusic(card, name, url) {
   updateSummary(); checkReady();
 }
 
+function stopAllPreview() {
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
+  clearTimeout(previewTimerId);
+  clearInterval(previewIntervalId);
+  previewTimerId = previewIntervalId = null;
+  document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+  document.querySelectorAll('.music-preview-bar').forEach(el => {
+    el.style.transition = 'none'; el.style.width = '0%';
+  });
+}
+
 function togglePlay(card, url, btn) {
-  if (audioPlayer && !audioPlayer.paused) {
-    audioPlayer.pause();
-    document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
-    if (audioPlayer._url === url) return;
-  }
+  const isSame = audioPlayer && audioPlayer._url === url && !audioPlayer.paused;
+  stopAllPreview();
+  if (isSame) return;
   audioPlayer = new Audio(url);
   audioPlayer._url = url;
   audioPlayer.play();
-  btn.textContent = '⏸';
-  audioPlayer.addEventListener('ended', () => btn.textContent = '▶');
+  const bar = card.querySelector('.music-preview-bar');
+  requestAnimationFrame(() => {
+    bar.style.transition = 'none'; bar.style.width = '0%';
+    requestAnimationFrame(() => {
+      bar.style.transition = `width ${PREVIEW_SEC}s linear`;
+      bar.style.width = '100%';
+    });
+  });
+  let rem = PREVIEW_SEC;
+  btn.innerHTML = `⏸ <span class="cd">${rem}s</span>`;
+  previewIntervalId = setInterval(() => {
+    rem--;
+    if (rem > 0) btn.innerHTML = `⏸ <span class="cd">${rem}s</span>`;
+    else btn.textContent = '▶';
+  }, 1000);
+  previewTimerId = setTimeout(stopAllPreview, PREVIEW_SEC * 1000);
+  audioPlayer.addEventListener('ended', stopAllPreview);
 }
 
 // ── 摘要 & 按鈕 ──
@@ -540,7 +581,7 @@ function checkReady() {
 // ── 製作影片 ──
 document.getElementById('make-btn').addEventListener('click', async () => {
   if (!photos.length || !selectedMusic) return;
-  const btn         = document.getElementById('make-btn');
+  const btn          = document.getElementById('make-btn');
   const progressWrap = document.getElementById('progress-bar-wrap');
   const progressBar  = document.getElementById('progress-bar');
   const dlLink       = document.getElementById('download-link');
@@ -554,10 +595,9 @@ document.getElementById('make-btn').addEventListener('click', async () => {
   try {
     // 壓縮照片
     const photoData = await Promise.all(photos.map(p => compressImage(p.dataUrl)));
-    progressBar.style.width = '30%';
+    progressBar.style.width = '20%';
     setStatus('info', '📤 正在送出製作請求⋯⋯');
 
-    // 照片 + 各自文字一起打包
     const photoPayload = photos.map((p, i) => ({
       data: photoData[i],
       text: p.text.trim()
@@ -571,47 +611,72 @@ document.getElementById('make-btn').addEventListener('click', async () => {
       duration: photos.length * 4
     };
 
-    progressBar.style.width = '45%';
-    setStatus('info', `🎬 正在合成影片（${photos.length} 張照片，約需 ${Math.ceil(photos.length * 3)} 秒）⋯⋯`);
+    // POST → 立刻拿 jobId（n8n 幾秒內回應）
+    const startRes = await fetch(N8N_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-    let fakeP = 45;
-    const timer = setInterval(() => {
-      fakeP = Math.min(fakeP + 1, 88);
-      progressBar.style.width = fakeP + '%';
-    }, 1000);
-
-    let res;
-    try {
-      res = await fetch(N8N_WEBHOOK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } finally {
-      clearInterval(timer);
-    }
-
-    progressBar.style.width = '95%';
-
-    if (!res.ok) {
-      let msg = `伺服器錯誤 (${res.status})`;
-      try { const j = await res.json(); msg = j.message || msg; } catch {}
+    if (!startRes.ok) {
+      let msg = `伺服器錯誤 (${startRes.status})`;
+      try { const j = await startRes.json(); msg = j.message || msg; } catch {}
       throw new Error(msg);
     }
 
-    const ct = res.headers.get('Content-Type') || '';
-    if (ct.includes('video/mp4') || ct.includes('octet-stream')) {
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const mb   = (blob.size / 1024 / 1024).toFixed(1);
-      progressBar.style.width = '100%';
-      setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
-      dlLink.href = url;
-      dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.mp4`;
-      dlLink.style.display = 'block';
-    } else {
-      throw new Error('未收到影片檔，請確認 n8n workflow 設定');
-    }
+    const startData = await startRes.json();
+    const jobId = startData.jobId;
+    if (!jobId) throw new Error('伺服器未回傳任務 ID，請確認 n8n workflow 設定');
+
+    progressBar.style.width = '35%';
+
+    // 輪詢直到完成（最多 10 分鐘）
+    const POLL_INTERVAL = 2000;
+    const POLL_TIMEOUT  = 10 * 60 * 1000;
+    const startTime = Date.now();
+
+    const result = await new Promise((resolve, reject) => {
+      const poll = async () => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        if (elapsed * 1000 > POLL_TIMEOUT) {
+          reject(new Error('製作超時（超過 10 分鐘），請重試'));
+          return;
+        }
+        // 進度條：35% → 90%，按時間緩慢推進
+        const fakeP = Math.min(35 + elapsed * 0.45, 90);
+        progressBar.style.width = fakeP + '%';
+        setStatus('info', `🎬 合成中⋯⋯ 已等待 ${elapsed} 秒（共 ${photos.length} 張照片）`);
+
+        try {
+          const res = await fetch(`${N8N_STATUS_URL}?jobId=${encodeURIComponent(jobId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'done')  { resolve(data); return; }
+            if (data.status === 'error') { reject(new Error(data.message || 'ffmpeg 失敗')); return; }
+          }
+        } catch { /* network hiccup, keep polling */ }
+
+        setTimeout(poll, POLL_INTERVAL);
+      };
+      poll();
+    });
+
+    progressBar.style.width = '100%';
+
+    // base64 → Blob → 下載
+    const binary = atob(result.base64Mp4);
+    const bytes  = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'video/mp4' });
+    const url  = URL.createObjectURL(blob);
+    const mb   = (blob.size / 1024 / 1024).toFixed(1);
+
+    setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+    dlLink.href = url;
+    dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.mp4`;
+    dlLink.style.display = 'block';
+    dlLink.click();
+
   } catch(e) {
     progressBar.style.width = '0%';
     setStatus('error', `❌ 製作失敗：${e.message}`);
