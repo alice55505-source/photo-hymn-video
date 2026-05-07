@@ -205,6 +205,26 @@
 
   .hint { font-size: 1.1rem; color: var(--muted); margin-top: 12px; line-height: 1.7; }
 
+  /* ── 音樂分類 tabs ── */
+  .music-tabs {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 18px;
+  }
+  .music-tab {
+    padding: 7px 18px;
+    border-radius: 20px;
+    border: 2px solid var(--border);
+    background: #fffaf5;
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all .15s;
+  }
+  .music-tab:hover { border-color: var(--accent2); color: var(--accent2); }
+  .music-tab.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+
   /* ── 音樂 ── */
   .music-grid {
     display: grid;
@@ -339,6 +359,7 @@
   <div class="card">
     <div class="step-label"><div class="step-num">2</div>選擇背景音樂</div>
     <h2>請選一首歌曲</h2>
+    <div class="music-tabs" id="music-tabs"></div>
     <div class="music-grid" id="music-grid">
       <p class="music-loading">🎵 載入音樂庫中⋯⋯</p>
     </div>
@@ -360,9 +381,11 @@
 <script>
 // ── 設定 ────────────────────────────────────────────
 const MUSIC_BASE     = 'https://raw.githubusercontent.com/alice55505-source/easymaker123/main/music/';
-const MUSIC_LIST_URL = 'https://api.github.com/repos/alice55505-source/easymaker123/contents/music';
+const MUSIC_TREE_URL = 'https://api.github.com/repos/alice55505-source/easymaker123/git/trees/main?recursive=1';
 const N8N_WEBHOOK    = 'https://n8n.alice55505.dpdns.org/webhook/slideshow';
 const N8N_STATUS_URL = 'https://n8n.alice55505.dpdns.org/webhook/slideshow-status';
+// 分類順序
+const CATEGORY_ORDER = ['福音','愛','同伴','牧養','召會生活','經歷主','台語詩歌'];
 // ────────────────────────────────────────────────────
 
 // photos[i] = { file, dataUrl, name, text }
@@ -483,38 +506,91 @@ function escapeAttr(s) {
 }
 
 // ── 音樂庫 ──
+let allMusicByCategory = {}; // { 分類: [{name, url, filename}] }
+let activeCategory = '全部';
+
 async function loadMusicList() {
   const grid = document.getElementById('music-grid');
+  const tabsEl = document.getElementById('music-tabs');
   try {
-    const res = await fetch(MUSIC_LIST_URL);
+    const res = await fetch(MUSIC_TREE_URL);
     if (!res.ok) throw new Error('無法連接音樂庫');
-    const files = await res.json();
-    const mp3s = files.filter(f => f.name.match(/\.mp3$/i));
-    if (mp3s.length === 0) {
-      grid.innerHTML = '<p class="music-loading">⚠️ 音樂庫是空的，請先上傳 MP3 到 GitHub</p>';
+    const { tree } = await res.json();
+
+    // 解析 music/{分類}/{歌名}.mp3
+    allMusicByCategory = {};
+    tree.forEach(item => {
+      const m = item.path.match(/^music\/([^/]+)\/([^/]+\.mp3)$/i);
+      if (!m) return;
+      const [, cat, file] = m;
+      if (!allMusicByCategory[cat]) allMusicByCategory[cat] = [];
+      allMusicByCategory[cat].push({
+        name: file.replace(/\.mp3$/i, ''),
+        filename: file,
+        url: MUSIC_BASE + encodeURIComponent(cat) + '/' + encodeURIComponent(file)
+      });
+    });
+
+    const cats = Object.keys(allMusicByCategory);
+    if (cats.length === 0) {
+      grid.innerHTML = '<p class="music-loading">⚠️ 音樂庫是空的</p>';
       return;
     }
-    grid.innerHTML = '';
-    mp3s.forEach(f => {
-      const name = f.name.replace(/\.mp3$/i, '');
-      const url = MUSIC_BASE + encodeURIComponent(f.name);
-      const card = document.createElement('div');
-      card.className = 'music-card';
-      card.innerHTML = `
-        <span class="music-icon">🎵</span>
-        <div><div class="music-name">${name}</div></div>
-        <button class="play-btn" title="試聽 20 秒">▶</button>
-        <div class="music-preview-bar"></div>
-      `;
-      card.addEventListener('click', e => {
-        if (e.target.classList.contains('play-btn')) { togglePlay(card, url, e.target); return; }
-        selectMusic(card, f.name, url);
+
+    // 建 tabs：全部 + 依順序出現的分類
+    const orderedCats = CATEGORY_ORDER.filter(c => allMusicByCategory[c]);
+    const tabNames = ['全部', ...orderedCats];
+    tabsEl.innerHTML = '';
+    tabNames.forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'music-tab' + (cat === activeCategory ? ' active' : '');
+      btn.textContent = cat;
+      btn.addEventListener('click', () => {
+        activeCategory = cat;
+        tabsEl.querySelectorAll('.music-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderMusicGrid();
       });
-      grid.appendChild(card);
+      tabsEl.appendChild(btn);
     });
+
+    renderMusicGrid();
   } catch(e) {
     grid.innerHTML = `<p class="music-loading">⚠️ 載入失敗：${e.message}</p>`;
   }
+}
+
+function renderMusicGrid() {
+  const grid = document.getElementById('music-grid');
+  grid.innerHTML = '';
+
+  const songs = activeCategory === '全部'
+    ? Object.values(allMusicByCategory).flat()
+    : (allMusicByCategory[activeCategory] || []);
+
+  if (songs.length === 0) {
+    grid.innerHTML = '<p class="music-loading">此分類尚無詩歌</p>';
+    return;
+  }
+
+  songs.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'music-card';
+    card.innerHTML = `
+      <span class="music-icon">🎵</span>
+      <div><div class="music-name">${s.name}</div></div>
+      <button class="play-btn" title="試聽 20 秒">▶</button>
+      <div class="music-preview-bar"></div>
+    `;
+    // 如果已選中此歌，恢復 selected 樣式
+    if (selectedMusic && selectedMusic.url === s.url) card.classList.add('selected');
+
+    card.addEventListener('click', e => {
+      if (e.target.classList.contains('play-btn')) { togglePlay(card, s.url, e.target); return; }
+      selectMusic(card, s.filename, s.url);
+    });
+    grid.appendChild(card);
+  });
 }
 
 function selectMusic(card, name, url) {
