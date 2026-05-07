@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相片幻燈片製作</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@400;700&display=swap');
+
+  :root {
+    --bg: #fdf6ee;
+    --card: #ffffff;
+    --accent: #c0392b;
+    --accent2: #e67e22;
+    --text: #2c1810;
+    --muted: #8b6f5e;
+    --border: #e8d5c4;
+    --shadow: 0 4px 24px rgba(44,24,16,0.10);
+    --radius: 20px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 20% 20%, #fde8d8 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, #fdf0e0 0%, transparent 50%);
+    min-height: 100vh;
+    font-family: 'Noto Serif TC', serif;
+    color: var(--text);
+    padding: 24px 16px 60px;
+  }
+
+  h1 {
+    font-size: 2.6rem;
+    font-weight: 700;
+    text-align: center;
+    color: var(--accent);
+    letter-spacing: 4px;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 1.2rem;
+    color: var(--muted);
+    margin-bottom: 36px;
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 32px 36px;
+    box-shadow: var(--shadow);
+    border: 2px solid var(--border);
+  }
+
+  .step-label {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 3px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .step-num {
+    background: var(--accent);
+    color: #fff;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .card h2 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 18px;
+  }
+
+  /* ── 照片上傳區 ── */
+  #drop-zone {
+    border: 3px dashed var(--accent2);
+    border-radius: 16px;
+    padding: 36px;
+    text-align: center;
+    cursor: pointer;
+    transition: background .2s;
+    background: #fffaf5;
+  }
+  #drop-zone:hover, #drop-zone.drag-over { background: #fff0e0; }
+  #drop-zone .icon { font-size: 3.5rem; }
+  #drop-zone p { font-size: 1.5rem; color: var(--muted); margin-top: 10px; }
+  #drop-zone input { display: none; }
+
+  /* ── 照片列表（每列一張） ── */
+  #photo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .photo-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #fffaf5;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 14px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .photo-row:hover { border-color: var(--accent2); box-shadow: 0 2px 10px rgba(230,126,34,.12); }
+  .photo-row.dragging { opacity: .4; border-color: var(--accent); }
+  .photo-row.drag-over-top {
+    border-top: 3px solid var(--accent);
+    background: #fff5ec;
+  }
+
+  .drag-handle {
+    font-size: 1.4rem;
+    color: #c5a898;
+    cursor: grab;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .photo-num {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 28px;
+    text-align: center;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .photo-thumb {
+    width: 88px;
+    height: 66px;
+    object-fit: cover;
+    border-radius: 10px;
+    flex-shrink: 0;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  }
+  .photo-fname {
+    font-size: .95rem;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 110px;
+    flex-shrink: 0;
+  }
+
+  /* 文字輸入欄 */
+  .photo-text-wrap {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+  }
+  .photo-text-input {
+    font-family: 'Ma Shan Zheng', cursive;
+    font-size: 1.55rem;
+    width: 100%;
+    padding: 9px 14px;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text);
+    outline: none;
+    transition: border-color .2s, background .2s;
+  }
+  .photo-text-input:focus { border-color: var(--accent2); }
+  .photo-text-input::placeholder { color: #c8aba0; font-size: 1.1rem; font-family: 'Noto Serif TC', serif; }
+  .photo-text-input.has-text {
+    border-color: #7ec87a;
+    background: #f4fff3;
+  }
+
+  .photo-del {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    color: #c5a898;
+    flex-shrink: 0;
+    padding: 5px 7px;
+    border-radius: 8px;
+    transition: color .15s, background .15s;
+    line-height: 1;
+  }
+  .photo-del:hover { color: var(--accent); background: #fdecea; }
+
+  .hint { font-size: 1.1rem; color: var(--muted); margin-top: 12px; line-height: 1.7; }
+
+  /* ── 音樂 ── */
+  .music-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .music-card {
+    border: 2.5px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 14px;
+    transition: border-color .2s, background .2s;
+    background: #fffaf5;
+  }
+  .music-card:hover { border-color: var(--accent2); background: #fff5ec; }
+  .music-card.selected { border-color: var(--accent); background: #fff0e8; }
+  .music-icon { font-size: 2.2rem; flex-shrink: 0; }
+  .music-name { font-size: 1.3rem; font-weight: 700; }
+  .music-card .play-btn {
+    margin-left: auto; background: none; border: none;
+    font-size: 1.6rem; cursor: pointer; color: var(--accent2);
+  }
+  .music-loading { font-size: 1.3rem; color: var(--muted); padding: 16px 0; }
+
+  /* ── 輸出 ── */
+  #make-btn {
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    padding: 24px;
+    font-size: 2rem;
+    font-family: 'Noto Serif TC', serif;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 4px;
+    box-shadow: 0 6px 24px rgba(192,57,43,.3);
+    transition: transform .15s, box-shadow .15s;
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+  }
+  #make-btn:hover { transform: translateY(-3px); box-shadow: 0 10px 32px rgba(192,57,43,.4); }
+  #make-btn:active { transform: translateY(0); }
+  #make-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+  #status-box {
+    display: none;
+    margin-top: 22px;
+    border-radius: 14px;
+    padding: 22px 26px;
+    font-size: 1.4rem;
+    line-height: 1.8;
+    white-space: pre-wrap;
+  }
+  #status-box.info    { background: #e8f4fd; border: 2px solid #3498db; color: #1a5276; }
+  #status-box.success { background: #e9f7ef; border: 2px solid #27ae60; color: #1e8449; }
+  #status-box.error   { background: #fdedec; border: 2px solid #e74c3c; color: #922b21; }
+
+  #progress-bar-wrap {
+    height: 16px; background: #e8d5c4; border-radius: 8px;
+    margin-top: 14px; overflow: hidden; display: none;
+  }
+  #progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent));
+    background-size: 200% 100%;
+    border-radius: 8px; width: 0%;
+    transition: width .5s ease;
+    animation: shimmer 2s infinite linear;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  #download-link {
+    display: none;
+    margin-top: 18px;
+    background: #27ae60;
+    color: #fff;
+    border-radius: 14px;
+    padding: 18px 28px;
+    font-size: 1.6rem;
+    font-family: 'Noto Serif TC', serif;
+    font-weight: 700;
+    text-decoration: none;
+    text-align: center;
+    letter-spacing: 3px;
+    box-shadow: 0 4px 18px rgba(39,174,96,.3);
+  }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #f0e6dc; }
+  ::-webkit-scrollbar-thumb { background: #c8a99a; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>📷 相片幻燈片</h1>
+<p class="subtitle">輕鬆製作，留住美好回憶</p>
+
+<div class="steps">
+
+  <!-- STEP 1: 照片 + 每張文字 -->
+  <div class="card">
+    <div class="step-label"><div class="step-num">1</div>選擇照片，加上文字</div>
+    <h2>點擊或拖曳上傳照片</h2>
+    <div id="drop-zone">
+      <div class="icon">🖼️</div>
+      <p>點這裡選擇照片</p>
+      <p style="font-size:1.1rem;margin-top:6px">（可以一次選很多張）</p>
+      <input type="file" id="photo-input" accept="image/*" multiple>
+    </div>
+    <div id="photo-list"></div>
+    <p class="hint" id="photo-count-hint" style="display:none"></p>
+  </div>
+
+  <!-- STEP 2: 音樂 -->
+  <div class="card">
+    <div class="step-label"><div class="step-num">2</div>選擇背景音樂</div>
+    <h2>請選一首歌曲</h2>
+    <div class="music-grid" id="music-grid">
+      <p class="music-loading">🎵 載入音樂庫中⋯⋯</p>
+    </div>
+  </div>
+
+  <!-- STEP 3: 輸出 -->
+  <div class="card">
+    <div class="step-label"><div class="step-num">3</div>製作影片</div>
+    <h2>確認後開始製作</h2>
+    <div id="summary" style="font-size:1.2rem;color:var(--muted);margin-bottom:18px;line-height:2;"></div>
+    <button id="make-btn" disabled>🎬 &nbsp;開始製作影片</button>
+    <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+    <div id="status-box"></div>
+    <a id="download-link" href="#" download="slideshow.mp4">⬇️ &nbsp;下載影片</a>
+  </div>
+
+</div>
+
+<script>
+// ── 設定 ────────────────────────────────────────────
+const MUSIC_BASE     = 'https://raw.githubusercontent.com/alice55505-source/easymaker123/main/music/';
+const MUSIC_LIST_URL = 'https://api.github.com/repos/alice55505-source/easymaker123/contents/music';
+const N8N_WEBHOOK    = 'https://n8n.alice55505.dpdns.org/webhook/slideshow';
+// ────────────────────────────────────────────────────
+
+// photos[i] = { file, dataUrl, name, text }
+let photos = [];
+let selectedMusic = null;
+let audioPlayer = null;
+let dragSrcIdx = null;
+
+// ── 照片上傳 ──
+const dropZone  = document.getElementById('drop-zone');
+const photoInput = document.getElementById('photo-input');
+
+dropZone.addEventListener('click', () => photoInput.click());
+photoInput.addEventListener('change', e => addPhotos(e.target.files));
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  addPhotos(e.dataTransfer.files);
+});
+
+function addPhotos(files) {
+  Array.from(files).forEach(file => {
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(jpe?g|png|gif|webp|heic)$/i)) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      photos.push({ file, dataUrl: e.target.result, name: file.name, text: '' });
+      renderPhotoList();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderPhotoList() {
+  const list = document.getElementById('photo-list');
+  list.innerHTML = '';
+
+  photos.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'photo-row';
+    row.draggable = true;
+    row.dataset.idx = i;
+
+    row.innerHTML = `
+      <span class="drag-handle" title="拖曳排序">⠿</span>
+      <span class="photo-num">${i + 1}</span>
+      <img class="photo-thumb" src="${p.dataUrl}" alt="">
+      <span class="photo-fname" title="${p.name}">${p.name}</span>
+      <div class="photo-text-wrap">
+        <input type="text"
+          class="photo-text-input${p.text ? ' has-text' : ''}"
+          placeholder="✍️  這張照片的文字（可不填）"
+          value="${escapeAttr(p.text)}"
+          data-idx="${i}">
+      </div>
+      <button class="photo-del" title="刪除" data-idx="${i}">✕</button>
+    `;
+
+    // 文字輸入即時更新
+    row.querySelector('.photo-text-input').addEventListener('input', function() {
+      photos[this.dataset.idx].text = this.value;
+      this.classList.toggle('has-text', this.value.trim().length > 0);
+      updateSummary();
+    });
+
+    // 刪除
+    row.querySelector('.photo-del').addEventListener('click', function(e) {
+      e.stopPropagation();
+      photos.splice(+this.dataset.idx, 1);
+      renderPhotoList();
+    });
+
+    // 拖曳排序
+    row.addEventListener('dragstart', () => {
+      dragSrcIdx = i;
+      setTimeout(() => row.classList.add('dragging'), 0);
+    });
+    row.addEventListener('dragend', () => row.classList.remove('dragging'));
+    row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over-top'); });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over-top'));
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      row.classList.remove('drag-over-top');
+      if (dragSrcIdx !== null && dragSrcIdx !== i) {
+        const moved = photos.splice(dragSrcIdx, 1)[0];
+        photos.splice(i, 0, moved);
+        renderPhotoList();
+      }
+    });
+
+    list.appendChild(row);
+  });
+
+  // 提示
+  const hint = document.getElementById('photo-count-hint');
+  if (photos.length > 0) {
+    const dur = photos.length * 4;
+    const withText = photos.filter(p => p.text.trim()).length;
+    hint.style.display = 'block';
+    hint.innerHTML =
+      `共 <strong>${photos.length}</strong> 張照片，影片長度約 <strong>${dur}</strong> 秒` +
+      (withText > 0 ? `，其中 <strong>${withText}</strong> 張有文字` : '') +
+      `。<br>可拖曳 ⠿ 調整順序。`;
+  } else {
+    hint.style.display = 'none';
+  }
+
+  updateSummary();
+  checkReady();
+}
+
+function escapeAttr(s) {
+  return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── 音樂庫 ──
+async function loadMusicList() {
+  const grid = document.getElementById('music-grid');
+  try {
+    const res = await fetch(MUSIC_LIST_URL);
+    if (!res.ok) throw new Error('無法連接音樂庫');
+    const files = await res.json();
+    const mp3s = files.filter(f => f.name.match(/\.mp3$/i));
+    if (mp3s.length === 0) {
+      grid.innerHTML = '<p class="music-loading">⚠️ 音樂庫是空的，請先上傳 MP3 到 GitHub</p>';
+      return;
+    }
+    grid.innerHTML = '';
+    mp3s.forEach(f => {
+      const name = f.name.replace(/\.mp3$/i, '');
+      const url = MUSIC_BASE + encodeURIComponent(f.name);
+      const card = document.createElement('div');
+      card.className = 'music-card';
+      card.innerHTML = `
+        <span class="music-icon">🎵</span>
+        <div><div class="music-name">${name}</div></div>
+        <button class="play-btn" title="試聽">▶</button>
+      `;
+      card.addEventListener('click', e => {
+        if (e.target.classList.contains('play-btn')) { togglePlay(card, url, e.target); return; }
+        selectMusic(card, f.name, url);
+      });
+      grid.appendChild(card);
+    });
+  } catch(e) {
+    grid.innerHTML = `<p class="music-loading">⚠️ 載入失敗：${e.message}</p>`;
+  }
+}
+
+function selectMusic(card, name, url) {
+  document.querySelectorAll('.music-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  selectedMusic = { name, url };
+  updateSummary(); checkReady();
+}
+
+function togglePlay(card, url, btn) {
+  if (audioPlayer && !audioPlayer.paused) {
+    audioPlayer.pause();
+    document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+    if (audioPlayer._url === url) return;
+  }
+  audioPlayer = new Audio(url);
+  audioPlayer._url = url;
+  audioPlayer.play();
+  btn.textContent = '⏸';
+  audioPlayer.addEventListener('ended', () => btn.textContent = '▶');
+}
+
+// ── 摘要 & 按鈕 ──
+function updateSummary() {
+  const s = document.getElementById('summary');
+  const withText = photos.filter(p => p.text.trim()).length;
+  let lines = [];
+  if (photos.length > 0) {
+    lines.push(`📷 照片：${photos.length} 張（${photos.length * 4} 秒）`);
+    if (withText > 0) lines.push(`✍️ 有文字：${withText} 張`);
+  }
+  if (selectedMusic) lines.push(`🎵 音樂：${selectedMusic.name.replace(/\.mp3$/i,'')}`);
+  s.innerHTML = lines.join('<br>') || '（請先完成步驟 1 和 2）';
+}
+
+function checkReady() {
+  document.getElementById('make-btn').disabled = !(photos.length > 0 && selectedMusic);
+}
+
+// ── 製作影片 ──
+document.getElementById('make-btn').addEventListener('click', async () => {
+  if (!photos.length || !selectedMusic) return;
+  const btn         = document.getElementById('make-btn');
+  const progressWrap = document.getElementById('progress-bar-wrap');
+  const progressBar  = document.getElementById('progress-bar');
+  const dlLink       = document.getElementById('download-link');
+
+  btn.disabled = true;
+  dlLink.style.display = 'none';
+  progressWrap.style.display = 'block';
+  progressBar.style.width = '10%';
+  setStatus('info', '⏳ 正在處理照片，請稍候⋯⋯');
+
+  try {
+    // 壓縮照片
+    const photoData = await Promise.all(photos.map(p => compressImage(p.dataUrl)));
+    progressBar.style.width = '30%';
+    setStatus('info', '📤 正在送出製作請求⋯⋯');
+
+    // 照片 + 各自文字一起打包
+    const photoPayload = photos.map((p, i) => ({
+      data: photoData[i],
+      text: p.text.trim()
+    }));
+
+    const payload = {
+      photos: photoPayload,
+      musicUrl: selectedMusic.url,
+      musicName: selectedMusic.name,
+      photoCount: photos.length,
+      duration: photos.length * 4
+    };
+
+    progressBar.style.width = '45%';
+    setStatus('info', `🎬 正在合成影片（${photos.length} 張照片，約需 ${Math.ceil(photos.length * 3)} 秒）⋯⋯`);
+
+    let fakeP = 45;
+    const timer = setInterval(() => {
+      fakeP = Math.min(fakeP + 1, 88);
+      progressBar.style.width = fakeP + '%';
+    }, 1000);
+
+    let res;
+    try {
+      res = await fetch(N8N_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } finally {
+      clearInterval(timer);
+    }
+
+    progressBar.style.width = '95%';
+
+    if (!res.ok) {
+      let msg = `伺服器錯誤 (${res.status})`;
+      try { const j = await res.json(); msg = j.message || msg; } catch {}
+      throw new Error(msg);
+    }
+
+    const ct = res.headers.get('Content-Type') || '';
+    if (ct.includes('video/mp4') || ct.includes('octet-stream')) {
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const mb   = (blob.size / 1024 / 1024).toFixed(1);
+      progressBar.style.width = '100%';
+      setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+      dlLink.href = url;
+      dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.mp4`;
+      dlLink.style.display = 'block';
+    } else {
+      throw new Error('未收到影片檔，請確認 n8n workflow 設定');
+    }
+  } catch(e) {
+    progressBar.style.width = '0%';
+    setStatus('error', `❌ 製作失敗：${e.message}`);
+    btn.disabled = false;
+  }
+});
+
+function setStatus(type, msg) {
+  const box = document.getElementById('status-box');
+  box.className = type;
+  box.style.display = 'block';
+  box.textContent = msg;
+}
+
+function compressImage(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 1920, maxH = 1080;
+      let w = img.width, h = img.height;
+      if (w > maxW || h > maxH) {
+        const r = Math.min(maxW/w, maxH/h);
+        w = Math.round(w*r); h = Math.round(h*r);
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', 0.88).split(',')[1]);
+    };
+    img.src = dataUrl;
+  });
+}
+
+// 初始化
+loadMusicList();
+updateSummary();
+</script>
+</body>
+</html>
