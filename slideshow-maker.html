@@ -507,7 +507,7 @@ function escapeAttr(s) {
 
 // ── 音樂庫 ──
 let allMusicByCategory = {}; // { 分類: [{name, url, filename}] }
-let activeCategory = '全部';
+let activeCategory = '';
 
 async function loadMusicList() {
   const grid = document.getElementById('music-grid');
@@ -537,11 +537,13 @@ async function loadMusicList() {
       return;
     }
 
-    // 建 tabs：全部 + 依順序出現的分類
+    // 建 tabs：依順序出現的分類（無「全部」）
     const orderedCats = CATEGORY_ORDER.filter(c => allMusicByCategory[c]);
-    const tabNames = ['全部', ...orderedCats];
+    if (!activeCategory || !allMusicByCategory[activeCategory]) {
+      activeCategory = orderedCats[0] || '';
+    }
     tabsEl.innerHTML = '';
-    tabNames.forEach(cat => {
+    orderedCats.forEach(cat => {
       const btn = document.createElement('button');
       btn.className = 'music-tab' + (cat === activeCategory ? ' active' : '');
       btn.textContent = cat;
@@ -564,9 +566,7 @@ function renderMusicGrid() {
   const grid = document.getElementById('music-grid');
   grid.innerHTML = '';
 
-  const songs = activeCategory === '全部'
-    ? Object.values(allMusicByCategory).flat()
-    : (allMusicByCategory[activeCategory] || []);
+  const songs = allMusicByCategory[activeCategory] || [];
 
   if (songs.length === 0) {
     grid.innerHTML = '<p class="music-loading">此分類尚無詩歌</p>';
