@@ -896,22 +896,40 @@ updateSummary();
 
 // ─── 影片剪輯器 ───
 let _trimFile=null, _trimUrl=null, _trimCb=null;
-let _trimStart=0, _trimEnd=0, _trimTotal=0, _dragging=null;
+let _trimStart=0, _trimEnd=0, _trimTotal=0;
 let _trimEventsReady=false;
+
+function fmtT(s){
+  const m=Math.floor(s/60), ss=Math.floor(s%60).toString().padStart(2,'0');
+  return `${m}:${ss}`;
+}
+
+function updateTrimUI(){
+  if(!_trimTotal) return;
+  document.getElementById('tst').textContent=fmtT(_trimStart);
+  document.getElementById('tet').textContent=fmtT(_trimEnd);
+  const dur=_trimEnd-_trimStart;
+  document.getElementById('tdur').textContent=`片段：${dur.toFixed(1)}s${dur>8?' ⚠️超過8s':''}`;
+  const sp=_trimStart/_trimTotal, ep=_trimEnd/_trimTotal;
+  document.getElementById('tsel').style.left=(sp*100)+'%';
+  document.getElementById('tsel').style.width=((ep-sp)*100)+'%';
+}
 
 function openTrimmer(file, objectUrl, onDone) {
   if(!_trimEventsReady){ setupTrimmerEvents(); _trimEventsReady=true; }
   _trimFile=file; _trimUrl=objectUrl; _trimCb=onDone;
-  const modal=document.getElementById('trimmer-modal');
   const vid=document.getElementById('tv');
   vid.src=objectUrl;
-  modal.style.display='flex';
+  document.getElementById('trimmer-modal').style.display='flex';
   vid.onloadedmetadata=()=>{
     _trimTotal=vid.duration;
     _trimStart=0;
     _trimEnd=Math.min(_trimTotal,8);
+    const SR=document.getElementById('tsr'), ER=document.getElementById('ter');
+    SR.max=ER.max=10000;
+    SR.value=0;
+    ER.value=Math.round((_trimEnd/_trimTotal)*10000);
     updateTrimUI();
-    vid.currentTime=0;
   };
 }
 
@@ -921,66 +939,33 @@ function closeTrimmer(){
   vid.pause(); vid.src='';
 }
 
-function fmtT(s){
-  const m=Math.floor(s/60), ss=Math.floor(s%60).toString().padStart(2,'0');
-  return `${m}:${ss}`;
-}
-
-function updateTrimUI(){
-  if(!_trimTotal) return;
-  const sp=_trimStart/_trimTotal, ep=_trimEnd/_trimTotal;
-  document.getElementById('tsel').style.left=(sp*100)+'%';
-  document.getElementById('tsel').style.width=((ep-sp)*100)+'%';
-  document.getElementById('tsh').style.left=`calc(${sp*100}% - 7px)`;
-  document.getElementById('teh').style.left=`calc(${ep*100}% - 7px)`;
-  document.getElementById('tst').textContent=fmtT(_trimStart);
-  document.getElementById('tet').textContent=fmtT(_trimEnd);
-  const dur=(_trimEnd-_trimStart).toFixed(1);
-  const warn=parseFloat(dur)>8?' ⚠️':'';
-  document.getElementById('tdur').textContent=`片段：${dur}s${warn}`;
-}
-
 function setupTrimmerEvents(){
-  const tl=document.getElementById('ttl');
   const vid=document.getElementById('tv');
+  const SR=document.getElementById('tsr');
+  const ER=document.getElementById('ter');
 
-  function pct(e){
-    const r=tl.getBoundingClientRect();
-    const x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
-    return Math.max(0,Math.min(1,x/r.width));
-  }
-
-  ['tsh','teh'].forEach(id=>{
-    const el=document.getElementById(id);
-    const which=id==='tsh'?'start':'end';
-    el.addEventListener('mousedown',e=>{_dragging=which;e.preventDefault();e.stopPropagation();});
-    el.addEventListener('touchstart',e=>{_dragging=which;e.preventDefault();},{passive:false});
+  SR.addEventListener('input',()=>{
+    _trimStart=(_trimTotal*SR.value/10000);
+    if(_trimStart>=_trimEnd-0.3){
+      _trimEnd=Math.min(_trimTotal,_trimStart+0.3);
+      ER.value=Math.round((_trimEnd/_trimTotal)*10000);
+    }
+    updateTrimUI();
+    vid.currentTime=_trimStart;
   });
 
-  function onMove(e){
-    if(!_dragging)return;
-    e.preventDefault();
-    const t=pct(e)*_trimTotal;
-    if(_dragging==='start') _trimStart=Math.max(0,Math.min(t,_trimEnd-0.5));
-    else _trimEnd=Math.min(_trimTotal,Math.max(t,_trimStart+0.5));
+  ER.addEventListener('input',()=>{
+    _trimEnd=(_trimTotal*ER.value/10000);
+    if(_trimEnd<=_trimStart+0.3){
+      _trimStart=Math.max(0,_trimEnd-0.3);
+      SR.value=Math.round((_trimStart/_trimTotal)*10000);
+    }
     updateTrimUI();
-    vid.currentTime=_dragging==='start'?_trimStart:_trimEnd;
-  }
-  function onUp(){_dragging=null;}
-  document.addEventListener('mousemove',onMove);
-  document.addEventListener('mouseup',onUp);
-  document.addEventListener('touchmove',onMove,{passive:false});
-  document.addEventListener('touchend',onUp);
-
-  tl.addEventListener('click',e=>{
-    if(_dragging)return;
-    vid.currentTime=pct(e)*_trimTotal;
+    vid.currentTime=_trimEnd;
   });
 
   vid.addEventListener('timeupdate',()=>{
-    if(!_trimTotal)return;
-    document.getElementById('tph').style.left=(vid.currentTime/_trimTotal*100)+'%';
-    if(vid.currentTime>=_trimEnd) vid.currentTime=_trimStart;
+    if(_trimTotal>0 && vid.currentTime>=_trimEnd) vid.currentTime=_trimStart;
   });
 
   document.getElementById('tcancel').addEventListener('click',closeTrimmer);
@@ -991,8 +976,9 @@ async function doTrim(){
   const dur=_trimEnd-_trimStart;
   if(dur<0.3){alert('請選擇至少 0.3 秒的片段');return;}
   const vid=document.getElementById('tv');
-  document.getElementById('tproc').textContent=`⏳ 剪輯中（需等待 ${dur.toFixed(0)} 秒）⋯⋯`;
-  document.getElementById('tproc').style.display='block';
+  const proc=document.getElementById('tproc');
+  proc.textContent=`⏳ 剪輯中，請等待約 ${Math.ceil(dur)} 秒⋯⋯`;
+  proc.style.display='block';
   document.getElementById('tconfirm').disabled=true;
   document.getElementById('tcancel').disabled=true;
   try{
@@ -1004,38 +990,40 @@ async function doTrim(){
     }
     const reader=new FileReader();
     reader.onload=e=>{
-      const result={base64:e.target.result.split(',')[1],mimeType:blob.type,duration:dur};
       closeTrimmer();
-      if(_trimCb)_trimCb(result);
+      if(_trimCb) _trimCb({base64:e.target.result.split(',')[1], mimeType:blob.type, duration:dur});
     };
     reader.readAsDataURL(blob);
   }catch(err){
     alert('剪輯失敗：'+err.message);
   }finally{
-    document.getElementById('tproc').style.display='none';
+    proc.style.display='none';
     document.getElementById('tconfirm').disabled=false;
     document.getElementById('tcancel').disabled=false;
   }
 }
 
-function captureSegment(video,startTime,endTime){
+function captureSegment(video, startTime, endTime){
   return new Promise((resolve,reject)=>{
     video.muted=true;
-    video.currentTime=startTime;
     const stream=video.captureStream?video.captureStream():(video.mozCaptureStream?video.mozCaptureStream():null);
-    if(!stream){reject(new Error('瀏覽器不支援 captureStream，請使用 Chrome'));return;}
+    if(!stream){reject(new Error('瀏覽器不支援，請使用 Chrome'));return;}
     const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']
       .find(m=>MediaRecorder.isTypeSupported(m))||'';
-    const rec=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+    const rec=new MediaRecorder(stream, mime?{mimeType:mime}:{});
     const chunks=[];
-    rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+    rec.ondataavailable=e=>{if(e.data.size>0) chunks.push(e.data);};
     rec.onstop=()=>resolve(new Blob(chunks,{type:rec.mimeType||'video/webm'}));
     rec.onerror=e=>reject(e.error||new Error('錄製失敗'));
-    video.onseeked=()=>{
+    // seek then record
+    const onSeeked=()=>{
+      video.removeEventListener('seeked',onSeeked);
       rec.start(100);
       video.play().catch(reject);
-      setTimeout(()=>{video.pause();rec.stop();},(endTime-startTime)*1000+300);
+      setTimeout(()=>{ video.pause(); rec.stop(); },(endTime-startTime)*1000+400);
     };
+    video.addEventListener('seeked',onSeeked);
+    video.currentTime=startTime;
   });
 }
 
@@ -1044,32 +1032,39 @@ function captureSegment(video,startTime,endTime){
 <!-- 影片剪輯 Modal -->
 <div id="trimmer-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:2000;align-items:center;justify-content:center;padding:16px;">
   <div style="background:#1c1c2e;border-radius:20px;padding:24px;width:100%;max-width:680px;box-shadow:0 8px 48px rgba(0,0,0,0.7);">
-    <h3 style="color:#fff;font-size:1.25rem;margin-bottom:14px;letter-spacing:2px;">✂️ 快速剪輯影片</h3>
-    <video id="tv" style="width:100%;border-radius:10px;background:#000;max-height:300px;" preload="metadata" playsinline controls></video>
+    <h3 style="color:#fff;font-size:1.25rem;margin-bottom:12px;letter-spacing:1px;">✂️ 快速剪輯影片</h3>
+    <video id="tv" style="width:100%;border-radius:10px;background:#000;max-height:280px;" preload="metadata" playsinline controls></video>
 
-    <p style="color:#888;font-size:0.82rem;margin:10px 0 4px;">拖曳兩側紅色把手選擇要使用的片段：</p>
-
-    <!-- Timeline -->
-    <div style="position:relative;padding:0 2px;">
-      <div id="ttl" style="position:relative;height:44px;background:#2d2d44;border-radius:10px;cursor:pointer;margin:4px 0;">
-        <div id="tsel" style="position:absolute;top:0;bottom:0;background:rgba(192,57,43,0.45);pointer-events:none;border-radius:6px;"></div>
-        <div id="tsh" style="position:absolute;top:-5px;bottom:-5px;width:14px;background:#c0392b;border-radius:5px;cursor:ew-resize;box-shadow:0 2px 8px #0008;z-index:2;"></div>
-        <div id="teh" style="position:absolute;top:-5px;bottom:-5px;width:14px;background:#c0392b;border-radius:5px;cursor:ew-resize;box-shadow:0 2px 8px #0008;z-index:2;"></div>
-        <div id="tph" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,0.5);pointer-events:none;"></div>
-      </div>
+    <!-- 選取範圍顯示條 -->
+    <div style="position:relative;height:8px;background:#333;border-radius:4px;margin:14px 0 8px;overflow:hidden;">
+      <div id="tsel" style="position:absolute;top:0;bottom:0;background:#c0392b;border-radius:4px;transition:left .05s,width .05s;"></div>
     </div>
 
-    <div style="display:flex;justify-content:space-between;color:#aaa;font-size:0.85rem;margin:6px 0 14px;">
-      <span id="tst">0:00</span>
-      <span id="tdur" style="color:#e67e22;font-weight:700;">片段：0s</span>
-      <span id="tet">0:00</span>
+    <!-- 開始 slider -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <span style="color:#888;font-size:0.82rem;min-width:28px;">開始</span>
+      <input type="range" id="tsr" min="0" max="10000" value="0" step="1"
+             style="flex:1;accent-color:#c0392b;cursor:pointer;">
+      <span id="tst" style="color:#e67e22;font-size:0.88rem;min-width:38px;text-align:right;font-weight:700;">0:00</span>
     </div>
 
-    <div id="tproc" style="display:none;text-align:center;color:#e67e22;padding:6px 0;font-size:0.9rem;"></div>
+    <!-- 結束 slider -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <span style="color:#888;font-size:0.82rem;min-width:28px;">結束</span>
+      <input type="range" id="ter" min="0" max="10000" value="10000" step="1"
+             style="flex:1;accent-color:#c0392b;cursor:pointer;">
+      <span id="tet" style="color:#e67e22;font-size:0.88rem;min-width:38px;text-align:right;font-weight:700;">0:00</span>
+    </div>
 
-    <div style="display:flex;gap:12px;margin-top:4px;">
+    <div style="text-align:center;font-size:0.95rem;color:#e67e22;font-weight:700;margin-bottom:10px;">
+      <span id="tdur">片段：0s</span>
+    </div>
+
+    <div id="tproc" style="display:none;text-align:center;color:#aaa;font-size:0.88rem;padding:6px 0;"></div>
+
+    <div style="display:flex;gap:12px;">
       <button id="tcancel" style="flex:1;padding:13px;border-radius:10px;border:none;background:#3a3a55;color:#ccc;cursor:pointer;font-size:0.95rem;">取消</button>
-      <button id="tconfirm" style="flex:2;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#c0392b,#e67e22);color:#fff;cursor:pointer;font-size:1rem;font-weight:700;letter-spacing:1px;">✂️ 確認加入</button>
+      <button id="tconfirm" style="flex:2;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#c0392b,#e67e22);color:#fff;cursor:pointer;font-size:1rem;font-weight:700;">✂️ 確認加入</button>
     </div>
   </div>
 </div>
