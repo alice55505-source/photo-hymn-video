@@ -444,8 +444,8 @@ function addPhotos(files) {
     if (!isVideo && !isImage) return;
 
     if (isVideo) {
-      if (file.size > 200 * 1024 * 1024) {
-        alert(`影片「${file.name}」超過 200MB，請裁短後再上傳`); return;
+      if (file.size > 8 * 1024 * 1024) {
+        alert(`影片「${file.name}」超過 8MB（約 ${(file.size/1024/1024).toFixed(1)}MB）。\n請裁短至 8 秒以內，或壓縮後再上傳。`); return;
       }
       const url = URL.createObjectURL(file);
       const vid = document.createElement('video');
@@ -786,6 +786,12 @@ document.getElementById('make-btn').addEventListener('click', async () => {
       photoCount: photos.length,
       duration: totalDur
     };
+
+    // 送出前檢查 payload 大小（n8n 上限約 16MB）
+    const payloadStr = JSON.stringify(payload);
+    if (payloadStr.length > 13 * 1024 * 1024) {
+      throw new Error(`素材太大（約 ${(payloadStr.length/1024/1024).toFixed(1)}MB），超過伺服器限制。\n請減少影片數量，或使用較短的影片（建議 8 秒以內）。`);
+    }
 
     // POST → 立刻拿 jobId（n8n 幾秒內回應）
     const startRes = await fetch(N8N_WEBHOOK, {
