@@ -590,11 +590,12 @@ async function loadMusicList() {
     if (!res.ok) throw new Error('無法連接音樂庫');
     const { tree } = await res.json();
 
-    // 解析 music/{分類}/{歌名}.mp3
+    // 解析 music/{分類}/{歌名}.mp3（只顯示有實際音訊的檔案，size > 100 bytes）
     allMusicByCategory = {};
     tree.forEach(item => {
       const m = item.path.match(/^music\/([^/]+)\/([^/]+\.mp3)$/i);
       if (!m) return;
+      if (!item.size || item.size < 100) return;  // 跳過空白佔位檔案
       const [, cat, file] = m;
       if (!allMusicByCategory[cat]) allMusicByCategory[cat] = [];
       allMusicByCategory[cat].push({
