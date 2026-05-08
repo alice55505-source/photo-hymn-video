@@ -897,8 +897,10 @@ updateSummary();
 // ─── 影片剪輯器 ───
 let _trimFile=null, _trimUrl=null, _trimCb=null;
 let _trimStart=0, _trimEnd=0, _trimTotal=0, _dragging=null;
+let _trimEventsReady=false;
 
 function openTrimmer(file, objectUrl, onDone) {
+  if(!_trimEventsReady){ setupTrimmerEvents(); _trimEventsReady=true; }
   _trimFile=file; _trimUrl=objectUrl; _trimCb=onDone;
   const modal=document.getElementById('trimmer-modal');
   const vid=document.getElementById('tv');
@@ -1037,7 +1039,6 @@ function captureSegment(video,startTime,endTime){
   });
 }
 
-setupTrimmerEvents();
 </script>
 
 <!-- 影片剪輯 Modal -->
