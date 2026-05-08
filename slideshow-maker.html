@@ -205,6 +205,26 @@
 
   .hint { font-size: 1.1rem; color: var(--muted); margin-top: 12px; line-height: 1.7; }
 
+  /* ── 音樂分類 tabs ── */
+  .music-tabs {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 18px;
+  }
+  .music-tab {
+    padding: 7px 18px;
+    border-radius: 20px;
+    border: 2px solid var(--border);
+    background: #fffaf5;
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all .15s;
+  }
+  .music-tab:hover { border-color: var(--accent2); color: var(--accent2); }
+  .music-tab.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+
   /* ── 音樂 ── */
   .music-grid {
     display: grid;
@@ -219,6 +239,8 @@
     display: flex; align-items: center; gap: 14px;
     transition: border-color .2s, background .2s;
     background: #fffaf5;
+    position: relative;
+    overflow: hidden;
   }
   .music-card:hover { border-color: var(--accent2); background: #fff5ec; }
   .music-card.selected { border-color: var(--accent); background: #fff0e8; }
@@ -226,7 +248,17 @@
   .music-name { font-size: 1.3rem; font-weight: 700; }
   .music-card .play-btn {
     margin-left: auto; background: none; border: none;
-    font-size: 1.6rem; cursor: pointer; color: var(--accent2);
+    font-size: 1.5rem; cursor: pointer; color: var(--accent2);
+    min-width: 64px; display: flex; align-items: center;
+    justify-content: center; gap: 4px; white-space: nowrap;
+  }
+  .play-btn .cd { font-size: .85rem; opacity: .8; }
+  .music-preview-bar {
+    position: absolute; bottom: 0; left: 0;
+    height: 4px; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 0 2px 0 14px;
+    pointer-events: none;
   }
   .music-loading { font-size: 1.3rem; color: var(--muted); padding: 16px 0; }
 
@@ -304,20 +336,20 @@
 </head>
 <body>
 
-<h1>📷 相片幻燈片</h1>
-<p class="subtitle">輕鬆製作，留住美好回憶</p>
+<h1>基督徒回顧影片製作</h1>
+<p class="subtitle">照片＋詩歌＝影片</p>
 
 <div class="steps">
 
   <!-- STEP 1: 照片 + 每張文字 -->
   <div class="card">
     <div class="step-label"><div class="step-num">1</div>選擇照片，加上文字</div>
-    <h2>點擊或拖曳上傳照片</h2>
+    <h2>點擊或拖曳上傳照片和影片</h2>
     <div id="drop-zone">
       <div class="icon">🖼️</div>
       <p>點這裡選擇照片</p>
       <p style="font-size:1.1rem;margin-top:6px">（可以一次選很多張）</p>
-      <input type="file" id="photo-input" accept="image/*" multiple>
+      <input type="file" id="photo-input" accept="image/*,video/*" multiple>
     </div>
     <div id="photo-list"></div>
     <p class="hint" id="photo-count-hint" style="display:none"></p>
@@ -327,6 +359,7 @@
   <div class="card">
     <div class="step-label"><div class="step-num">2</div>選擇背景音樂</div>
     <h2>請選一首歌曲</h2>
+    <div class="music-tabs" id="music-tabs"></div>
     <div class="music-grid" id="music-grid">
       <p class="music-loading">🎵 載入音樂庫中⋯⋯</p>
     </div>
@@ -336,6 +369,31 @@
   <div class="card">
     <div class="step-label"><div class="step-num">3</div>製作影片</div>
     <h2>確認後開始製作</h2>
+    <div style="margin-bottom:20px;padding:20px;background:var(--bg);border-radius:16px;border:2px solid var(--border);">
+      <div style="font-weight:700;color:var(--accent);letter-spacing:2px;margin-bottom:14px;">🎬 片頭設定（可略）</div>
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+        <!-- 片頭照片 -->
+        <div style="flex:0 0 auto;">
+          <label style="display:block;font-size:.9rem;color:var(--muted);margin-bottom:6px;">背景照片</label>
+          <div id="intro-photo-zone" onclick="document.getElementById('intro-photo-input').click()"
+            style="width:120px;height:80px;border:2px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#fff;">
+            <span id="intro-photo-placeholder" style="font-size:.85rem;color:var(--muted);text-align:center;line-height:1.4;">點此上傳<br>片頭照片</span>
+            <img id="intro-photo-preview" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;">
+          </div>
+          <input type="file" id="intro-photo-input" accept="image/*" style="display:none">
+          <button id="intro-photo-clear" onclick="clearIntroPhoto()" style="display:none;margin-top:4px;font-size:.8rem;background:none;border:none;color:var(--muted);cursor:pointer;text-decoration:underline;">移除照片</button>
+        </div>
+        <!-- 片頭文字 -->
+        <div style="flex:1;min-width:180px;">
+          <label style="display:block;font-size:.9rem;color:var(--muted);margin-bottom:6px;">標題文字</label>
+          <input type="text" id="intro-title" maxlength="24"
+            placeholder="例：2026年終數算"
+            style="width:100%;padding:10px 14px;font-size:1.1rem;font-family:inherit;border:2px solid var(--border);border-radius:10px;outline:none;background:#fff;"
+            oninput="updateSummary()">
+          <p style="margin-top:6px;font-size:.85rem;color:var(--muted);">無照片→黑底白字；有照片→疊在照片上</p>
+        </div>
+      </div>
+    </div>
     <div id="summary" style="font-size:1.2rem;color:var(--muted);margin-bottom:18px;line-height:2;"></div>
     <button id="make-btn" disabled>🎬 &nbsp;開始製作影片</button>
     <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
@@ -348,15 +406,22 @@
 <script>
 // ── 設定 ────────────────────────────────────────────
 const MUSIC_BASE     = 'https://raw.githubusercontent.com/alice55505-source/easymaker123/main/music/';
-const MUSIC_LIST_URL = 'https://api.github.com/repos/alice55505-source/easymaker123/contents/music';
+const MUSIC_TREE_URL = 'https://api.github.com/repos/alice55505-source/easymaker123/git/trees/main?recursive=1';
 const N8N_WEBHOOK    = 'https://n8n.alice55505.dpdns.org/webhook/slideshow';
+const N8N_STATUS_URL = 'https://n8n.alice55505.dpdns.org/webhook/slideshow-status';
+// 分類順序
+const CATEGORY_ORDER = ['傳福音','福音','愛','同伴','牧養','奉獻','召會生活','親近主','患難安慰','台語詩歌'];
 // ────────────────────────────────────────────────────
 
-// photos[i] = { file, dataUrl, name, text }
+// photos[i] = { type:'photo'|'video', file, dataUrl, name, text, duration(video only) }
 let photos = [];
 let selectedMusic = null;
 let audioPlayer = null;
 let dragSrcIdx = null;
+let introPhotoData = null; // base64 of intro background photo
+const PREVIEW_SEC = 20;
+let previewTimerId = null;
+let previewIntervalId = null;
 
 // ── 照片上傳 ──
 const dropZone  = document.getElementById('drop-zone');
@@ -374,13 +439,35 @@ dropZone.addEventListener('drop', e => {
 
 function addPhotos(files) {
   Array.from(files).forEach(file => {
-    if (!file.type.startsWith('image/') && !file.name.match(/\.(jpe?g|png|gif|webp|heic)$/i)) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      photos.push({ file, dataUrl: e.target.result, name: file.name, text: '' });
-      renderPhotoList();
-    };
-    reader.readAsDataURL(file);
+    const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|webm|mkv|m4v)$/i);
+    const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpe?g|png|gif|webp|heic)$/i);
+    if (!isVideo && !isImage) return;
+
+    if (isVideo) {
+      if (file.size > 200 * 1024 * 1024) {
+        alert(`影片「${file.name}」超過 200MB，請裁短後再上傳`); return;
+      }
+      const url = URL.createObjectURL(file);
+      const vid = document.createElement('video');
+      vid.preload = 'metadata';
+      vid.onloadedmetadata = () => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          photos.push({ type: 'video', file, dataUrl: url, base64: e.target.result.split(',')[1],
+                        name: file.name, text: '', duration: vid.duration, mimeType: file.type });
+          renderPhotoList();
+        };
+        reader.readAsDataURL(file);
+      };
+      vid.src = url;
+    } else {
+      const reader = new FileReader();
+      reader.onload = e => {
+        photos.push({ type: 'photo', file, dataUrl: e.target.result, name: file.name, text: '' });
+        renderPhotoList();
+      };
+      reader.readAsDataURL(file);
+    }
   });
 }
 
@@ -394,15 +481,21 @@ function renderPhotoList() {
     row.draggable = true;
     row.dataset.idx = i;
 
+    const isVid = p.type === 'video';
+    const dur = isVid ? Math.round(p.duration) : 4;
+    const thumb = isVid
+      ? `<video class="photo-thumb" src="${p.dataUrl}" muted preload="metadata" style="object-fit:cover;"></video>`
+      : `<img class="photo-thumb" src="${p.dataUrl}" alt="">`;
+    const badge = isVid ? `<span style="font-size:.75rem;background:#333;color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;">🎬 ${dur}s</span>` : '';
     row.innerHTML = `
       <span class="drag-handle" title="拖曳排序">⠿</span>
       <span class="photo-num">${i + 1}</span>
-      <img class="photo-thumb" src="${p.dataUrl}" alt="">
-      <span class="photo-fname" title="${p.name}">${p.name}</span>
+      ${thumb}
+      <span class="photo-fname" title="${p.name}">${p.name}${badge}</span>
       <div class="photo-text-wrap">
         <input type="text"
           class="photo-text-input${p.text ? ' has-text' : ''}"
-          placeholder="✍️  這張照片的文字（可不填）"
+          placeholder="${isVid ? '✍️  影片上的文字（可不填）' : '✍️  這張照片的文字（可不填）'}"
           value="${escapeAttr(p.text)}"
           data-idx="${i}">
       </div>
@@ -447,12 +540,13 @@ function renderPhotoList() {
   // 提示
   const hint = document.getElementById('photo-count-hint');
   if (photos.length > 0) {
-    const dur = photos.length * 4;
+    const totalDur = photos.reduce((s, p) => s + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
+    const vidCount = photos.filter(p => p.type === 'video').length;
     const withText = photos.filter(p => p.text.trim()).length;
     hint.style.display = 'block';
     hint.innerHTML =
-      `共 <strong>${photos.length}</strong> 張照片，影片長度約 <strong>${dur}</strong> 秒` +
-      (withText > 0 ? `，其中 <strong>${withText}</strong> 張有文字` : '') +
+      `共 <strong>${photos.length}</strong> 個素材（${vidCount > 0 ? `含 ${vidCount} 段影片，` : ''}影片長度約 <strong>${totalDur}</strong> 秒）` +
+      (withText > 0 ? `，其中 <strong>${withText}</strong> 個有文字` : '') +
       `。<br>可拖曳 ⠿ 調整順序。`;
   } else {
     hint.style.display = 'none';
@@ -466,38 +560,114 @@ function escapeAttr(s) {
   return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// ── 片頭照片 ──
+document.getElementById('intro-photo-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  compressImage(URL.createObjectURL(file)).then(b64 => {
+    introPhotoData = b64;
+    document.getElementById('intro-photo-preview').src = 'data:image/jpeg;base64,' + b64;
+    document.getElementById('intro-photo-preview').style.display = 'block';
+    document.getElementById('intro-photo-placeholder').style.display = 'none';
+    document.getElementById('intro-photo-clear').style.display = 'block';
+    updateSummary();
+  });
+});
+function clearIntroPhoto() {
+  introPhotoData = null;
+  document.getElementById('intro-photo-input').value = '';
+  document.getElementById('intro-photo-preview').style.display = 'none';
+  document.getElementById('intro-photo-placeholder').style.display = 'block';
+  document.getElementById('intro-photo-clear').style.display = 'none';
+  updateSummary();
+}
+
 // ── 音樂庫 ──
+let allMusicByCategory = {}; // { 分類: [{name, url, filename}] }
+let activeCategory = '';
+
 async function loadMusicList() {
   const grid = document.getElementById('music-grid');
+  const tabsEl = document.getElementById('music-tabs');
   try {
-    const res = await fetch(MUSIC_LIST_URL);
+    const res = await fetch(MUSIC_TREE_URL);
     if (!res.ok) throw new Error('無法連接音樂庫');
-    const files = await res.json();
-    const mp3s = files.filter(f => f.name.match(/\.mp3$/i));
-    if (mp3s.length === 0) {
-      grid.innerHTML = '<p class="music-loading">⚠️ 音樂庫是空的，請先上傳 MP3 到 GitHub</p>';
+    const { tree } = await res.json();
+
+    // 解析 music/{分類}/{歌名}.mp3
+    allMusicByCategory = {};
+    tree.forEach(item => {
+      const m = item.path.match(/^music\/([^/]+)\/([^/]+\.mp3)$/i);
+      if (!m) return;
+      const [, cat, file] = m;
+      if (!allMusicByCategory[cat]) allMusicByCategory[cat] = [];
+      allMusicByCategory[cat].push({
+        name: file.replace(/\.mp3$/i, ''),
+        filename: file,
+        url: MUSIC_BASE + encodeURIComponent(cat) + '/' + encodeURIComponent(file)
+      });
+    });
+
+    const cats = Object.keys(allMusicByCategory);
+    if (cats.length === 0) {
+      grid.innerHTML = '<p class="music-loading">⚠️ 音樂庫是空的</p>';
       return;
     }
-    grid.innerHTML = '';
-    mp3s.forEach(f => {
-      const name = f.name.replace(/\.mp3$/i, '');
-      const url = MUSIC_BASE + encodeURIComponent(f.name);
-      const card = document.createElement('div');
-      card.className = 'music-card';
-      card.innerHTML = `
-        <span class="music-icon">🎵</span>
-        <div><div class="music-name">${name}</div></div>
-        <button class="play-btn" title="試聽">▶</button>
-      `;
-      card.addEventListener('click', e => {
-        if (e.target.classList.contains('play-btn')) { togglePlay(card, url, e.target); return; }
-        selectMusic(card, f.name, url);
+
+    // 建 tabs：依順序出現的分類（無「全部」）
+    const orderedCats = CATEGORY_ORDER.filter(c => allMusicByCategory[c]);
+    if (!activeCategory || !allMusicByCategory[activeCategory]) {
+      activeCategory = orderedCats[0] || '';
+    }
+    tabsEl.innerHTML = '';
+    orderedCats.forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'music-tab' + (cat === activeCategory ? ' active' : '');
+      btn.textContent = cat;
+      btn.addEventListener('click', () => {
+        activeCategory = cat;
+        tabsEl.querySelectorAll('.music-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderMusicGrid();
       });
-      grid.appendChild(card);
+      tabsEl.appendChild(btn);
     });
+
+    renderMusicGrid();
   } catch(e) {
     grid.innerHTML = `<p class="music-loading">⚠️ 載入失敗：${e.message}</p>`;
   }
+}
+
+function renderMusicGrid() {
+  const grid = document.getElementById('music-grid');
+  grid.innerHTML = '';
+
+  const songs = allMusicByCategory[activeCategory] || [];
+
+  if (songs.length === 0) {
+    grid.innerHTML = '<p class="music-loading">此分類尚無詩歌</p>';
+    return;
+  }
+
+  songs.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'music-card';
+    card.innerHTML = `
+      <span class="music-icon">🎵</span>
+      <div><div class="music-name">${s.name}</div></div>
+      <button class="play-btn" title="試聽 20 秒">▶</button>
+      <div class="music-preview-bar"></div>
+    `;
+    // 如果已選中此歌，恢復 selected 樣式
+    if (selectedMusic && selectedMusic.url === s.url) card.classList.add('selected');
+
+    card.addEventListener('click', e => {
+      if (e.target.classList.contains('play-btn')) { togglePlay(card, s.url, e.target); return; }
+      selectMusic(card, s.filename, s.url);
+    });
+    grid.appendChild(card);
+  });
 }
 
 function selectMusic(card, name, url) {
@@ -507,29 +677,68 @@ function selectMusic(card, name, url) {
   updateSummary(); checkReady();
 }
 
+function stopAllPreview() {
+  if (audioPlayer) { audioPlayer.pause(); audioPlayer = null; }
+  clearTimeout(previewTimerId);
+  clearInterval(previewIntervalId);
+  previewTimerId = previewIntervalId = null;
+  document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+  document.querySelectorAll('.music-preview-bar').forEach(el => {
+    el.style.transition = 'none'; el.style.width = '0%';
+  });
+}
+
 function togglePlay(card, url, btn) {
-  if (audioPlayer && !audioPlayer.paused) {
-    audioPlayer.pause();
-    document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
-    if (audioPlayer._url === url) return;
-  }
+  const isSame = audioPlayer && audioPlayer._url === url && !audioPlayer.paused;
+  stopAllPreview();
+  if (isSame) return;
   audioPlayer = new Audio(url);
   audioPlayer._url = url;
   audioPlayer.play();
-  btn.textContent = '⏸';
-  audioPlayer.addEventListener('ended', () => btn.textContent = '▶');
+  const bar = card.querySelector('.music-preview-bar');
+  requestAnimationFrame(() => {
+    bar.style.transition = 'none'; bar.style.width = '0%';
+    requestAnimationFrame(() => {
+      bar.style.transition = `width ${PREVIEW_SEC}s linear`;
+      bar.style.width = '100%';
+    });
+  });
+  let rem = PREVIEW_SEC;
+  btn.innerHTML = `⏸ <span class="cd">${rem}s</span>`;
+  previewIntervalId = setInterval(() => {
+    rem--;
+    if (rem > 0) btn.innerHTML = `⏸ <span class="cd">${rem}s</span>`;
+    else btn.textContent = '▶';
+  }, 1000);
+  previewTimerId = setTimeout(stopAllPreview, PREVIEW_SEC * 1000);
+  audioPlayer.addEventListener('ended', stopAllPreview);
 }
 
 // ── 摘要 & 按鈕 ──
 function updateSummary() {
   const s = document.getElementById('summary');
-  const withText = photos.filter(p => p.text.trim()).length;
+  const photoCount = photos.filter(p => p.type !== 'video').length;
+  const vidCount   = photos.filter(p => p.type === 'video').length;
+  const withText   = photos.filter(p => p.text.trim()).length;
+  const totalDur   = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
   let lines = [];
   if (photos.length > 0) {
-    lines.push(`📷 照片：${photos.length} 張（${photos.length * 4} 秒）`);
-    if (withText > 0) lines.push(`✍️ 有文字：${withText} 張`);
+    const parts = [];
+    if (photoCount > 0) parts.push(`${photoCount} 張照片`);
+    if (vidCount   > 0) parts.push(`${vidCount} 段影片`);
+    lines.push(`📷 素材：${parts.join(' + ')}（約 ${totalDur} 秒）`);
+    if (withText > 0) lines.push(`✍️ 有文字：${withText} 個`);
+    if (vidCount > 0)  lines.push(`🔇 影片段落音樂會自動降低音量`);
   }
   if (selectedMusic) lines.push(`🎵 音樂：${selectedMusic.name.replace(/\.mp3$/i,'')}`);
+  const introTitle = (document.getElementById('intro-title')?.value || '').trim();
+  const hasIntroPhoto = !!introPhotoData;
+  if (hasIntroPhoto || introTitle) {
+    const parts = [];
+    if (hasIntroPhoto) parts.push('有照片');
+    if (introTitle)    parts.push(`"${introTitle}"`);
+    lines.push(`🎬 片頭：${parts.join(' + ')}`);
+  }
   s.innerHTML = lines.join('<br>') || '（請先完成步驟 1 和 2）';
 }
 
@@ -540,7 +749,7 @@ function checkReady() {
 // ── 製作影片 ──
 document.getElementById('make-btn').addEventListener('click', async () => {
   if (!photos.length || !selectedMusic) return;
-  const btn         = document.getElementById('make-btn');
+  const btn          = document.getElementById('make-btn');
   const progressWrap = document.getElementById('progress-bar-wrap');
   const progressBar  = document.getElementById('progress-bar');
   const dlLink       = document.getElementById('download-link');
@@ -549,69 +758,103 @@ document.getElementById('make-btn').addEventListener('click', async () => {
   dlLink.style.display = 'none';
   progressWrap.style.display = 'block';
   progressBar.style.width = '10%';
-  setStatus('info', '⏳ 正在處理照片，請稍候⋯⋯');
+  setStatus('info', '⏳ 正在處理素材，請稍候⋯⋯');
 
   try {
-    // 壓縮照片
-    const photoData = await Promise.all(photos.map(p => compressImage(p.dataUrl)));
-    progressBar.style.width = '30%';
+    // 壓縮照片、影片直接用已讀取的 base64
+    const mediaData = await Promise.all(photos.map(p =>
+      p.type === 'video' ? Promise.resolve(p.base64) : compressImage(p.dataUrl)
+    ));
+    progressBar.style.width = '20%';
     setStatus('info', '📤 正在送出製作請求⋯⋯');
 
-    // 照片 + 各自文字一起打包
+    const totalDur = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
     const photoPayload = photos.map((p, i) => ({
-      data: photoData[i],
-      text: p.text.trim()
+      type: p.type || 'photo',
+      data: mediaData[i],
+      text: p.text.trim(),
+      duration: p.type === 'video' ? p.duration : 4,
+      mimeType: p.mimeType || 'image/jpeg'
     }));
 
     const payload = {
       photos: photoPayload,
       musicUrl: selectedMusic.url,
       musicName: selectedMusic.name,
+      introTitle: (document.getElementById('intro-title')?.value || '').trim(),
+      introPhoto: introPhotoData || '',
       photoCount: photos.length,
-      duration: photos.length * 4
+      duration: totalDur
     };
 
-    progressBar.style.width = '45%';
-    setStatus('info', `🎬 正在合成影片（${photos.length} 張照片，約需 ${Math.ceil(photos.length * 3)} 秒）⋯⋯`);
+    // POST → 立刻拿 jobId（n8n 幾秒內回應）
+    const startRes = await fetch(N8N_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-    let fakeP = 45;
-    const timer = setInterval(() => {
-      fakeP = Math.min(fakeP + 1, 88);
-      progressBar.style.width = fakeP + '%';
-    }, 1000);
-
-    let res;
-    try {
-      res = await fetch(N8N_WEBHOOK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } finally {
-      clearInterval(timer);
-    }
-
-    progressBar.style.width = '95%';
-
-    if (!res.ok) {
-      let msg = `伺服器錯誤 (${res.status})`;
-      try { const j = await res.json(); msg = j.message || msg; } catch {}
+    if (!startRes.ok) {
+      let msg = `伺服器錯誤 (${startRes.status})`;
+      try { const j = await startRes.json(); msg = j.message || msg; } catch {}
       throw new Error(msg);
     }
 
-    const ct = res.headers.get('Content-Type') || '';
-    if (ct.includes('video/mp4') || ct.includes('octet-stream')) {
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const mb   = (blob.size / 1024 / 1024).toFixed(1);
-      progressBar.style.width = '100%';
-      setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
-      dlLink.href = url;
-      dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.mp4`;
-      dlLink.style.display = 'block';
-    } else {
-      throw new Error('未收到影片檔，請確認 n8n workflow 設定');
-    }
+    const startData = await startRes.json();
+    const jobId = startData.jobId;
+    if (!jobId) throw new Error('伺服器未回傳任務 ID，請確認 n8n workflow 設定');
+
+    progressBar.style.width = '35%';
+
+    // 輪詢直到完成（最多 10 分鐘）
+    const POLL_INTERVAL = 2000;
+    const POLL_TIMEOUT  = 10 * 60 * 1000;
+    const startTime = Date.now();
+
+    const result = await new Promise((resolve, reject) => {
+      const poll = async () => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        if (elapsed * 1000 > POLL_TIMEOUT) {
+          reject(new Error('製作超時（超過 10 分鐘），請重試'));
+          return;
+        }
+        // 進度條：35% → 90%，按時間緩慢推進
+        const fakeP = Math.min(35 + elapsed * 0.45, 90);
+        progressBar.style.width = fakeP + '%';
+        const vidC = photos.filter(p=>p.type==='video').length;
+        const hint2 = vidC > 0 ? `${photos.length} 個素材（含 ${vidC} 段影片）` : `${photos.length} 張照片`;
+        setStatus('info', `🎬 合成中⋯⋯ 已等待 ${elapsed} 秒（${hint2}）`);
+
+        try {
+          const res = await fetch(`${N8N_STATUS_URL}?jobId=${encodeURIComponent(jobId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'done')  { resolve(data); return; }
+            if (data.status === 'error') { reject(new Error(data.message || 'ffmpeg 失敗')); return; }
+          }
+        } catch { /* network hiccup, keep polling */ }
+
+        setTimeout(poll, POLL_INTERVAL);
+      };
+      poll();
+    });
+
+    progressBar.style.width = '100%';
+
+    // base64 → Blob → 下載
+    const binary = atob(result.base64Mp4);
+    const bytes  = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'video/mp4' });
+    const url  = URL.createObjectURL(blob);
+    const mb   = (blob.size / 1024 / 1024).toFixed(1);
+
+    setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+    dlLink.href = url;
+    dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.mp4`;
+    dlLink.style.display = 'block';
+    dlLink.click();
+
   } catch(e) {
     progressBar.style.width = '0%';
     setStatus('error', `❌ 製作失敗：${e.message}`);
