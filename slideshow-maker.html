@@ -444,20 +444,16 @@ function addPhotos(files) {
     if (!isVideo && !isImage) return;
 
     if (isVideo) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert(`影片「${file.name}」超過 8MB（約 ${(file.size/1024/1024).toFixed(1)}MB）。\n請裁短至 8 秒以內，或壓縮後再上傳。`); return;
-      }
       const url = URL.createObjectURL(file);
       const vid = document.createElement('video');
       vid.preload = 'metadata';
       vid.onloadedmetadata = () => {
-        const reader = new FileReader();
-        reader.onload = e => {
-          photos.push({ type: 'video', file, dataUrl: url, base64: e.target.result.split(',')[1],
-                        name: file.name, text: '', duration: vid.duration, mimeType: file.type });
+        openTrimmer(file, url, result => {
+          photos.push({ type: 'video', file, dataUrl: url,
+            base64: result.base64, name: file.name, text: '',
+            duration: result.duration, mimeType: result.mimeType });
           renderPhotoList();
-        };
-        reader.readAsDataURL(file);
+        });
       };
       vid.src = url;
     } else {
@@ -897,6 +893,184 @@ function compressImage(dataUrl) {
 // 初始化
 loadMusicList();
 updateSummary();
+
+// ─── 影片剪輯器 ───
+let _trimFile=null, _trimUrl=null, _trimCb=null;
+let _trimStart=0, _trimEnd=0, _trimTotal=0, _dragging=null;
+
+function openTrimmer(file, objectUrl, onDone) {
+  _trimFile=file; _trimUrl=objectUrl; _trimCb=onDone;
+  const modal=document.getElementById('trimmer-modal');
+  const vid=document.getElementById('tv');
+  vid.src=objectUrl;
+  modal.style.display='flex';
+  vid.onloadedmetadata=()=>{
+    _trimTotal=vid.duration;
+    _trimStart=0;
+    _trimEnd=Math.min(_trimTotal,8);
+    updateTrimUI();
+    vid.currentTime=0;
+  };
+}
+
+function closeTrimmer(){
+  document.getElementById('trimmer-modal').style.display='none';
+  const vid=document.getElementById('tv');
+  vid.pause(); vid.src='';
+}
+
+function fmtT(s){
+  const m=Math.floor(s/60), ss=Math.floor(s%60).toString().padStart(2,'0');
+  return `${m}:${ss}`;
+}
+
+function updateTrimUI(){
+  if(!_trimTotal) return;
+  const sp=_trimStart/_trimTotal, ep=_trimEnd/_trimTotal;
+  document.getElementById('tsel').style.left=(sp*100)+'%';
+  document.getElementById('tsel').style.width=((ep-sp)*100)+'%';
+  document.getElementById('tsh').style.left=`calc(${sp*100}% - 7px)`;
+  document.getElementById('teh').style.left=`calc(${ep*100}% - 7px)`;
+  document.getElementById('tst').textContent=fmtT(_trimStart);
+  document.getElementById('tet').textContent=fmtT(_trimEnd);
+  const dur=(_trimEnd-_trimStart).toFixed(1);
+  const warn=parseFloat(dur)>8?' ⚠️':'';
+  document.getElementById('tdur').textContent=`片段：${dur}s${warn}`;
+}
+
+function setupTrimmerEvents(){
+  const tl=document.getElementById('ttl');
+  const vid=document.getElementById('tv');
+
+  function pct(e){
+    const r=tl.getBoundingClientRect();
+    const x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+    return Math.max(0,Math.min(1,x/r.width));
+  }
+
+  ['tsh','teh'].forEach(id=>{
+    const el=document.getElementById(id);
+    const which=id==='tsh'?'start':'end';
+    el.addEventListener('mousedown',e=>{_dragging=which;e.preventDefault();e.stopPropagation();});
+    el.addEventListener('touchstart',e=>{_dragging=which;e.preventDefault();},{passive:false});
+  });
+
+  function onMove(e){
+    if(!_dragging)return;
+    e.preventDefault();
+    const t=pct(e)*_trimTotal;
+    if(_dragging==='start') _trimStart=Math.max(0,Math.min(t,_trimEnd-0.5));
+    else _trimEnd=Math.min(_trimTotal,Math.max(t,_trimStart+0.5));
+    updateTrimUI();
+    vid.currentTime=_dragging==='start'?_trimStart:_trimEnd;
+  }
+  function onUp(){_dragging=null;}
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+  document.addEventListener('touchmove',onMove,{passive:false});
+  document.addEventListener('touchend',onUp);
+
+  tl.addEventListener('click',e=>{
+    if(_dragging)return;
+    vid.currentTime=pct(e)*_trimTotal;
+  });
+
+  vid.addEventListener('timeupdate',()=>{
+    if(!_trimTotal)return;
+    document.getElementById('tph').style.left=(vid.currentTime/_trimTotal*100)+'%';
+    if(vid.currentTime>=_trimEnd) vid.currentTime=_trimStart;
+  });
+
+  document.getElementById('tcancel').addEventListener('click',closeTrimmer);
+  document.getElementById('tconfirm').addEventListener('click',doTrim);
+}
+
+async function doTrim(){
+  const dur=_trimEnd-_trimStart;
+  if(dur<0.3){alert('請選擇至少 0.3 秒的片段');return;}
+  const vid=document.getElementById('tv');
+  document.getElementById('tproc').textContent=`⏳ 剪輯中（需等待 ${dur.toFixed(0)} 秒）⋯⋯`;
+  document.getElementById('tproc').style.display='block';
+  document.getElementById('tconfirm').disabled=true;
+  document.getElementById('tcancel').disabled=true;
+  try{
+    const blob=await captureSegment(vid,_trimStart,_trimEnd);
+    const mb=(blob.size/1024/1024).toFixed(1);
+    if(blob.size>8*1024*1024){
+      alert(`剪輯後仍有 ${mb}MB，超過 8MB。\n請選擇更短的片段（約 8 秒以內）。`);
+      return;
+    }
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const result={base64:e.target.result.split(',')[1],mimeType:blob.type,duration:dur};
+      closeTrimmer();
+      if(_trimCb)_trimCb(result);
+    };
+    reader.readAsDataURL(blob);
+  }catch(err){
+    alert('剪輯失敗：'+err.message);
+  }finally{
+    document.getElementById('tproc').style.display='none';
+    document.getElementById('tconfirm').disabled=false;
+    document.getElementById('tcancel').disabled=false;
+  }
+}
+
+function captureSegment(video,startTime,endTime){
+  return new Promise((resolve,reject)=>{
+    video.muted=true;
+    video.currentTime=startTime;
+    const stream=video.captureStream?video.captureStream():(video.mozCaptureStream?video.mozCaptureStream():null);
+    if(!stream){reject(new Error('瀏覽器不支援 captureStream，請使用 Chrome'));return;}
+    const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']
+      .find(m=>MediaRecorder.isTypeSupported(m))||'';
+    const rec=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+    const chunks=[];
+    rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+    rec.onstop=()=>resolve(new Blob(chunks,{type:rec.mimeType||'video/webm'}));
+    rec.onerror=e=>reject(e.error||new Error('錄製失敗'));
+    video.onseeked=()=>{
+      rec.start(100);
+      video.play().catch(reject);
+      setTimeout(()=>{video.pause();rec.stop();},(endTime-startTime)*1000+300);
+    };
+  });
+}
+
+setupTrimmerEvents();
 </script>
+
+<!-- 影片剪輯 Modal -->
+<div id="trimmer-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:2000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#1c1c2e;border-radius:20px;padding:24px;width:100%;max-width:680px;box-shadow:0 8px 48px rgba(0,0,0,0.7);">
+    <h3 style="color:#fff;font-size:1.25rem;margin-bottom:14px;letter-spacing:2px;">✂️ 快速剪輯影片</h3>
+    <video id="tv" style="width:100%;border-radius:10px;background:#000;max-height:300px;" preload="metadata" playsinline controls></video>
+
+    <p style="color:#888;font-size:0.82rem;margin:10px 0 4px;">拖曳兩側紅色把手選擇要使用的片段：</p>
+
+    <!-- Timeline -->
+    <div style="position:relative;padding:0 2px;">
+      <div id="ttl" style="position:relative;height:44px;background:#2d2d44;border-radius:10px;cursor:pointer;margin:4px 0;">
+        <div id="tsel" style="position:absolute;top:0;bottom:0;background:rgba(192,57,43,0.45);pointer-events:none;border-radius:6px;"></div>
+        <div id="tsh" style="position:absolute;top:-5px;bottom:-5px;width:14px;background:#c0392b;border-radius:5px;cursor:ew-resize;box-shadow:0 2px 8px #0008;z-index:2;"></div>
+        <div id="teh" style="position:absolute;top:-5px;bottom:-5px;width:14px;background:#c0392b;border-radius:5px;cursor:ew-resize;box-shadow:0 2px 8px #0008;z-index:2;"></div>
+        <div id="tph" style="position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,0.5);pointer-events:none;"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;color:#aaa;font-size:0.85rem;margin:6px 0 14px;">
+      <span id="tst">0:00</span>
+      <span id="tdur" style="color:#e67e22;font-weight:700;">片段：0s</span>
+      <span id="tet">0:00</span>
+    </div>
+
+    <div id="tproc" style="display:none;text-align:center;color:#e67e22;padding:6px 0;font-size:0.9rem;"></div>
+
+    <div style="display:flex;gap:12px;margin-top:4px;">
+      <button id="tcancel" style="flex:1;padding:13px;border-radius:10px;border:none;background:#3a3a55;color:#ccc;cursor:pointer;font-size:0.95rem;">取消</button>
+      <button id="tconfirm" style="flex:2;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#c0392b,#e67e22);color:#fff;cursor:pointer;font-size:1rem;font-weight:700;letter-spacing:1px;">✂️ 確認加入</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
