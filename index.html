@@ -906,14 +906,6 @@ function compressImage(dataUrl) {
 loadMusicList();
 updateSummary();
 
-// PWA Service Worker
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .catch(() => {});
-  });
-}
-
 // PWA 安裝提示
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', e => {
