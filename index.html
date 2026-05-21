@@ -1264,29 +1264,54 @@ function buildModalContent() {
     };
   }
 
-  if (isAndroid || deferredInstallPrompt) {
-    return {
-      title: '安裝到桌面',
-      subtitle: '像 App 一樣使用，開啟更快速！',
-      body: `
-        <div class="pwa-steps">
-          <div class="pwa-step">
-            <div class="pwa-step-icon">📲</div>
-            <div class="pwa-step-text">
-              <strong>一鍵安裝到手機桌面</strong>
-              <span>點選下方按鈕，跟著提示完成安裝</span>
+  if (isAndroid) {
+    if (deferredInstallPrompt) {
+      return {
+        title: '安裝到桌面',
+        subtitle: '像 App 一樣使用，開啟更快速！',
+        body: `
+          <div class="pwa-steps">
+            <div class="pwa-step">
+              <div class="pwa-step-icon">📲</div>
+              <div class="pwa-step-text">
+                <strong>點下方按鈕一鍵安裝</strong>
+                <span>跟著提示完成，圖示就在桌面了</span>
+              </div>
             </div>
-          </div>
-          <div class="pwa-step">
-            <div class="pwa-step-icon">🎬</div>
-            <div class="pwa-step-text">
-              <strong>像 App 一樣直接開啟</strong>
-              <span>以後從桌面圖示進入，不需要瀏覽器</span>
+          </div>`,
+        btnLabel: '立即安裝'
+      };
+    } else {
+      return {
+        title: '加入主畫面',
+        subtitle: '從 Chrome 選單手動安裝',
+        body: `
+          <div class="pwa-steps">
+            <div class="pwa-step">
+              <div class="pwa-step-icon">⋮</div>
+              <div class="pwa-step-text">
+                <strong>點右上角「⋮」選單</strong>
+                <span>Chrome 瀏覽器右上角三個點</span>
+              </div>
             </div>
-          </div>
-        </div>`,
-      btnLabel: '立即安裝'
-    };
+            <div class="pwa-step">
+              <div class="pwa-step-icon">📲</div>
+              <div class="pwa-step-text">
+                <strong>選「加入主畫面」或「安裝應用程式」</strong>
+                <span>找不到的話請先重新整理頁面再試</span>
+              </div>
+            </div>
+            <div class="pwa-step">
+              <div class="pwa-step-icon">✅</div>
+              <div class="pwa-step-text">
+                <strong>點「新增」確認</strong>
+                <span>圖示就會出現在桌面</span>
+              </div>
+            </div>
+          </div>`,
+        btnLabel: null
+      };
+    }
   }
 
   // 電腦瀏覽器（Chrome/Edge）
