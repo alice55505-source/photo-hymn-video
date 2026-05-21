@@ -9,6 +9,7 @@
   "background_color": "#fdf6ee",
   "theme_color": "#c0392b",
   "lang": "zh-TW",
+  "prefer_related_applications": false,
   "categories": ["utilities", "multimedia"],
   "icons": [
     {
