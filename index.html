@@ -906,44 +906,273 @@ function compressImage(dataUrl) {
 loadMusicList();
 updateSummary();
 
-// PWA 安裝提示
+// ── PWA 安裝引導 ──────────────────────────────────────
 let deferredInstallPrompt = null;
+
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  showInstallBanner();
 });
 
-function showInstallBanner() {
-  if (document.getElementById('pwa-install-banner')) return;
-  const banner = document.createElement('div');
-  banner.id = 'pwa-install-banner';
-  banner.innerHTML = `
-    <span>📲 安裝到桌面，隨時使用！</span>
-    <button id="pwa-install-btn">安裝</button>
-    <button id="pwa-dismiss-btn">×</button>
-  `;
-  banner.style.cssText = `
-    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
-    background:#c0392b;color:#fff;padding:12px 18px;border-radius:14px;
-    display:flex;align-items:center;gap:12px;font-family:'Noto Serif TC',serif;
-    font-size:1rem;font-weight:700;z-index:9999;
-    box-shadow:0 4px 20px rgba(192,57,43,.5);white-space:nowrap;
-  `;
-  banner.querySelector('#pwa-install-btn').style.cssText =
-    'background:#fff;color:#c0392b;border:none;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer;';
-  banner.querySelector('#pwa-dismiss-btn').style.cssText =
-    'background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1;';
-  banner.querySelector('#pwa-install-btn').onclick = async () => {
-    if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    banner.remove();
-  };
-  banner.querySelector('#pwa-dismiss-btn').onclick = () => banner.remove();
-  document.body.appendChild(banner);
+window.addEventListener('appinstalled', () => {
+  closeInstallModal();
+});
+
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  const isIOS = /iphone|ipad|ipod/i.test(ua);
+  const isSafari = isIOS && /safari/i.test(ua) && !/crios|fxios/i.test(ua);
+  const isAndroid = /android/i.test(ua);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+  return { isIOS, isSafari, isAndroid, isStandalone };
 }
+
+function shouldShowInstallModal() {
+  const { isStandalone } = detectPlatform();
+  if (isStandalone) return false; // 已安裝，不再提示
+
+  const dismissed = localStorage.getItem('pwa-install-dismissed');
+  if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) return false;
+  return true;
+}
+
+function closeInstallModal() {
+  const modal = document.getElementById('pwa-install-modal');
+  if (modal) {
+    modal.style.opacity = '0';
+    modal.style.transform = 'scale(0.95)';
+    setTimeout(() => modal.remove(), 250);
+  }
+}
+
+function dismissInstallModal() {
+  localStorage.setItem('pwa-install-dismissed', Date.now().toString());
+  closeInstallModal();
+}
+
+function buildModalContent() {
+  const { isIOS, isSafari, isAndroid } = detectPlatform();
+
+  if (isIOS && isSafari) {
+    return {
+      title: '加入主畫面',
+      subtitle: '只需三步，讓這個工具住在你的桌面！',
+      body: `
+        <div class="pwa-steps">
+          <div class="pwa-step">
+            <div class="pwa-step-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                <polyline points="16 6 12 2 8 6"/>
+                <line x1="12" y1="2" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="pwa-step-text">
+              <strong>點選底部的「分享」按鈕</strong>
+              <span>（就是那個向上的箭頭）</span>
+            </div>
+          </div>
+          <div class="pwa-step">
+            <div class="pwa-step-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="3"/>
+                <line x1="12" y1="8" x2="12" y2="16"/>
+                <line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+            </div>
+            <div class="pwa-step-text">
+              <strong>選擇「加入主畫面」</strong>
+              <span>在分享選單中往下滑找到它</span>
+            </div>
+          </div>
+          <div class="pwa-step">
+            <div class="pwa-step-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <div class="pwa-step-text">
+              <strong>點選右上角「新增」</strong>
+              <span>完成！圖示出現在桌面了</span>
+            </div>
+          </div>
+        </div>`,
+      btnLabel: null
+    };
+  }
+
+  if (isAndroid || deferredInstallPrompt) {
+    return {
+      title: '安裝到桌面',
+      subtitle: '像 App 一樣使用，開啟更快速！',
+      body: `
+        <div class="pwa-steps">
+          <div class="pwa-step">
+            <div class="pwa-step-icon">📲</div>
+            <div class="pwa-step-text">
+              <strong>一鍵安裝到手機桌面</strong>
+              <span>點選下方按鈕，跟著提示完成安裝</span>
+            </div>
+          </div>
+          <div class="pwa-step">
+            <div class="pwa-step-icon">🎬</div>
+            <div class="pwa-step-text">
+              <strong>像 App 一樣直接開啟</strong>
+              <span>以後從桌面圖示進入，不需要瀏覽器</span>
+            </div>
+          </div>
+        </div>`,
+      btnLabel: '立即安裝'
+    };
+  }
+
+  // 電腦瀏覽器（Chrome/Edge）
+  return {
+    title: '安裝到桌面',
+    subtitle: '把這個工具安裝為桌面應用程式！',
+    body: `
+      <div class="pwa-steps">
+        <div class="pwa-step">
+          <div class="pwa-step-icon">💻</div>
+          <div class="pwa-step-text">
+            <strong>點選網址列右側的安裝圖示</strong>
+            <span>在 Chrome / Edge 網址列的最右邊</span>
+          </div>
+        </div>
+        <div class="pwa-step">
+          <div class="pwa-step-icon">✅</div>
+          <div class="pwa-step-text">
+            <strong>點選「安裝」確認</strong>
+            <span>會以獨立視窗開啟，不需要瀏覽器</span>
+          </div>
+        </div>
+      </div>`,
+    btnLabel: deferredInstallPrompt ? '立即安裝' : null
+  };
+}
+
+function showInstallModal() {
+  if (!shouldShowInstallModal()) return;
+  if (document.getElementById('pwa-install-modal')) return;
+
+  const { title, subtitle, body, btnLabel } = buildModalContent();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pwa-install-modal';
+  overlay.innerHTML = `
+    <div class="pwa-modal-card">
+      <button class="pwa-close-btn" id="pwa-close">✕</button>
+      <div class="pwa-modal-icon">🎬</div>
+      <h2 class="pwa-modal-title">${title}</h2>
+      <p class="pwa-modal-subtitle">${subtitle}</p>
+      ${body}
+      <div class="pwa-modal-actions">
+        ${btnLabel ? `<button class="pwa-install-btn" id="pwa-do-install">${btnLabel}</button>` : ''}
+        <button class="pwa-dismiss-btn" id="pwa-dismiss">下次再說</button>
+      </div>
+    </div>
+  `;
+
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(44,24,16,0.55);
+    z-index:9999;display:flex;align-items:center;justify-content:center;
+    padding:16px;transition:opacity .25s,transform .25s;
+  `;
+
+  const card = overlay.querySelector('.pwa-modal-card');
+  card.style.cssText = `
+    background:#fdf6ee;border-radius:24px;padding:36px 32px 28px;
+    max-width:440px;width:100%;position:relative;
+    box-shadow:0 12px 48px rgba(44,24,16,0.3);
+    border:2px solid #e8d5c4;
+    font-family:'Noto Serif TC',serif;
+  `;
+
+  overlay.querySelector('.pwa-close-btn').style.cssText = `
+    position:absolute;top:14px;right:16px;background:none;border:none;
+    font-size:1.2rem;color:#8b6f5e;cursor:pointer;padding:4px 8px;
+    border-radius:8px;line-height:1;
+  `;
+  overlay.querySelector('.pwa-modal-icon').style.cssText = `
+    font-size:3rem;text-align:center;margin-bottom:10px;
+  `;
+  overlay.querySelector('.pwa-modal-title').style.cssText = `
+    font-size:1.6rem;font-weight:700;color:#c0392b;text-align:center;
+    margin-bottom:6px;letter-spacing:2px;
+  `;
+  overlay.querySelector('.pwa-modal-subtitle').style.cssText = `
+    font-size:1rem;color:#8b6f5e;text-align:center;margin-bottom:24px;line-height:1.6;
+  `;
+
+  overlay.querySelectorAll('.pwa-steps').forEach(el => {
+    el.style.cssText = 'display:flex;flex-direction:column;gap:14px;margin-bottom:28px;';
+  });
+  overlay.querySelectorAll('.pwa-step').forEach(el => {
+    el.style.cssText = `
+      display:flex;align-items:center;gap:16px;
+      background:#fff;border:2px solid #e8d5c4;border-radius:14px;padding:14px 16px;
+    `;
+  });
+  overlay.querySelectorAll('.pwa-step-icon').forEach(el => {
+    el.style.cssText = 'font-size:1.6rem;flex-shrink:0;width:36px;text-align:center;';
+  });
+  overlay.querySelectorAll('.pwa-step-text').forEach(el => {
+    el.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+  });
+  overlay.querySelectorAll('.pwa-step-text strong').forEach(el => {
+    el.style.cssText = 'font-size:1rem;color:#2c1810;font-weight:700;';
+  });
+  overlay.querySelectorAll('.pwa-step-text span').forEach(el => {
+    el.style.cssText = 'font-size:.85rem;color:#8b6f5e;';
+  });
+
+  overlay.querySelector('.pwa-modal-actions').style.cssText = `
+    display:flex;flex-direction:column;gap:10px;
+  `;
+
+  const installBtn = overlay.querySelector('#pwa-do-install');
+  if (installBtn) {
+    installBtn.style.cssText = `
+      width:100%;padding:16px;border:none;border-radius:14px;
+      background:linear-gradient(135deg,#c0392b,#e67e22);
+      color:#fff;font-size:1.15rem;font-family:'Noto Serif TC',serif;
+      font-weight:700;cursor:pointer;letter-spacing:2px;
+      box-shadow:0 4px 16px rgba(192,57,43,.35);
+    `;
+    installBtn.onclick = async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        if (outcome === 'accepted') closeInstallModal();
+      }
+    };
+  }
+
+  const dismissBtn = overlay.querySelector('#pwa-dismiss');
+  dismissBtn.style.cssText = `
+    width:100%;padding:12px;border:2px solid #e8d5c4;border-radius:14px;
+    background:none;color:#8b6f5e;font-size:1rem;
+    font-family:'Noto Serif TC',serif;cursor:pointer;
+  `;
+  dismissBtn.onclick = dismissInstallModal;
+  overlay.querySelector('#pwa-close').onclick = dismissInstallModal;
+
+  // 點背景關閉
+  overlay.onclick = e => { if (e.target === overlay) dismissInstallModal(); };
+
+  document.body.appendChild(overlay);
+
+  // 入場動畫
+  overlay.style.opacity = '0';
+  requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+}
+
+// 頁面載入完成後 0.8 秒顯示
+window.addEventListener('load', () => {
+  setTimeout(showInstallModal, 800);
+});
 
 // ─── 影片剪輯器 ───
 let _trimFile=null, _trimUrl=null, _trimCb=null;
