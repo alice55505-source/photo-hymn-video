@@ -820,7 +820,7 @@ async function makeVideoLocally() {
     if (introTitle || introPhotoData) {
       setStatus('info', '🎬 合成片頭⋯⋯');
       await drawIntroToCanvas(ctx, W, H, introTitle, introPhotoData);
-      tsUs = await encodeStatic(canvas, videoEncoder, 3, FPS, tsUs);
+      tsUs = await encodeStatic(canvas, videoEncoder, 3, tsUs);
       setProgress(8);
     }
 
@@ -831,13 +831,13 @@ async function makeVideoLocally() {
       setStatus('info', `🎬 合成中：第 ${i + 1} / ${photos.length} 個素材⋯⋯`);
 
       if (p.type === 'video') {
-        tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, FPS, W, H, tsUs);
+        tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
       } else {
         const bmp = await loadBitmap(p.dataUrl);
         drawCover(ctx, bmp, W, H);
         bmp.close();
         if (p.text) drawTextOverlay(ctx, p.text, W, H);
-        tsUs = await encodeStatic(canvas, videoEncoder, 4, FPS, tsUs);
+        tsUs = await encodeStatic(canvas, videoEncoder, 4, tsUs);
       }
     }
 
@@ -896,47 +896,77 @@ async function makeVideoLocally() {
   }
 }
 
-// 靜態幀（照片 / 片頭）
-async function encodeStatic(canvas, encoder, durationSec, FPS, startTs) {
-  const n = Math.round(durationSec * FPS);
-  for (let f = 0; f < n; f++) {
-    const frame = new VideoFrame(canvas, {
-      timestamp: startTs + Math.round(f * 1_000_000 / FPS),
-      duration:  Math.round(1_000_000 / FPS)
-    });
-    encoder.encode(frame, { keyFrame: f === 0 });
-    frame.close();
-    if (f % 48 === 0) await new Promise(r => setTimeout(r, 0)); // 讓 UI 喘氣
-  }
+// 靜態幀（照片 / 片頭）：一張只編一個關鍵幀，靠 duration 撐滿時間
+async function encodeStatic(canvas, encoder, durationSec, startTs) {
+  const frame = new VideoFrame(canvas, {
+    timestamp: startTs,
+    duration:  Math.round(durationSec * 1_000_000)
+  });
+  encoder.encode(frame, { keyFrame: true });
+  frame.close();
   return startTs + Math.round(durationSec * 1_000_000);
 }
 
-// 影片剪輯：逐幀 seek 擷取（用較低 fps 降低 seek 次數）
-async function encodeVideoClipFrames(p, ctx, canvas, encoder, FPS, W, H, startTs) {
-  const CLIP_FPS   = Math.min(FPS, 12);
-  const frameCount = Math.round(p.duration * CLIP_FPS);
-  const frameDurUs = Math.round(1_000_000 / CLIP_FPS);
-
+// 影片剪輯：優先用 requestVideoFrameCallback 實時擷取，不支援則 seek
+async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   const vid = document.createElement('video');
-  vid.src = p.dataUrl; vid.muted = true; vid.preload = 'auto';
-  await new Promise(r => { vid.onloadeddata = r; vid.load(); });
+  vid.src = p.dataUrl; vid.muted = true;
+  await new Promise(r => { vid.oncanplay = r; vid.load(); });
 
   let ts = startTs;
-  for (let f = 0; f < frameCount; f++) {
-    vid.currentTime = f / CLIP_FPS;
-    await new Promise(r => { vid.onseeked = r; });
-    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
-    ctx.drawImage(vid,
-      (W - vid.videoWidth  * scale) / 2,
-      (H - vid.videoHeight * scale) / 2,
-      vid.videoWidth * scale, vid.videoHeight * scale);
-    if (p.text) drawTextOverlay(ctx, p.text, W, H);
-    const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
-    encoder.encode(frame, { keyFrame: f === 0 || f % 24 === 0 });
-    frame.close();
-    ts += frameDurUs;
+
+  if ('requestVideoFrameCallback' in vid) {
+    // 讓影片自然播放，每個解碼幀都擷取一次（和美圖秀秀一樣快）
+    await new Promise((resolve, reject) => {
+      const onFrame = (_, meta) => {
+        if (meta.mediaTime >= p.duration - 0.04) { vid.pause(); resolve(); return; }
+
+        const frameTs  = startTs + Math.round(meta.mediaTime * 1_000_000);
+        const frameDur = Math.round(1_000_000 / 30);
+
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+        const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
+        ctx.drawImage(vid,
+          (W - vid.videoWidth  * scale) / 2,
+          (H - vid.videoHeight * scale) / 2,
+          vid.videoWidth * scale, vid.videoHeight * scale);
+        if (p.text) drawTextOverlay(ctx, p.text, W, H);
+
+        const frame = new VideoFrame(canvas, { timestamp: frameTs, duration: frameDur });
+        encoder.encode(frame, { keyFrame: meta.mediaTime < 0.04 });
+        frame.close();
+        ts = frameTs + frameDur;
+
+        vid.requestVideoFrameCallback(onFrame);
+      };
+
+      vid.requestVideoFrameCallback(onFrame);
+      vid.play().catch(reject);
+      // 保險：超過時間就強制結束
+      setTimeout(() => { vid.pause(); resolve(); }, (p.duration + 2) * 1000);
+    });
+  } else {
+    // 後備：seek 擷取（12fps）
+    const CLIP_FPS   = 12;
+    const frameCount = Math.round(p.duration * CLIP_FPS);
+    const frameDurUs = Math.round(1_000_000 / CLIP_FPS);
+    for (let f = 0; f < frameCount; f++) {
+      vid.currentTime = f / CLIP_FPS;
+      await new Promise(r => { vid.onseeked = r; });
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+      const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
+      ctx.drawImage(vid,
+        (W - vid.videoWidth  * scale) / 2,
+        (H - vid.videoHeight * scale) / 2,
+        vid.videoWidth * scale, vid.videoHeight * scale);
+      if (p.text) drawTextOverlay(ctx, p.text, W, H);
+      const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
+      encoder.encode(frame, { keyFrame: f === 0 || f % 24 === 0 });
+      frame.close();
+      ts += frameDurUs;
+    }
   }
+
   vid.src = '';
   return ts;
 }
