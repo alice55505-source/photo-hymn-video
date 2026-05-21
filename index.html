@@ -2,8 +2,19 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>相片幻燈片製作</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>基督徒回顧影片製作</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#c0392b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="詩歌影片">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@400;700&display=swap');
 
@@ -894,6 +905,53 @@ function compressImage(dataUrl) {
 // 初始化
 loadMusicList();
 updateSummary();
+
+// PWA Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .catch(() => {});
+  });
+}
+
+// PWA 安裝提示
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner();
+});
+
+function showInstallBanner() {
+  if (document.getElementById('pwa-install-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'pwa-install-banner';
+  banner.innerHTML = `
+    <span>📲 安裝到桌面，隨時使用！</span>
+    <button id="pwa-install-btn">安裝</button>
+    <button id="pwa-dismiss-btn">×</button>
+  `;
+  banner.style.cssText = `
+    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    background:#c0392b;color:#fff;padding:12px 18px;border-radius:14px;
+    display:flex;align-items:center;gap:12px;font-family:'Noto Serif TC',serif;
+    font-size:1rem;font-weight:700;z-index:9999;
+    box-shadow:0 4px 20px rgba(192,57,43,.5);white-space:nowrap;
+  `;
+  banner.querySelector('#pwa-install-btn').style.cssText =
+    'background:#fff;color:#c0392b;border:none;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer;';
+  banner.querySelector('#pwa-dismiss-btn').style.cssText =
+    'background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1;';
+  banner.querySelector('#pwa-install-btn').onclick = async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    banner.remove();
+  };
+  banner.querySelector('#pwa-dismiss-btn').onclick = () => banner.remove();
+  document.body.appendChild(banner);
+}
 
 // ─── 影片剪輯器 ───
 let _trimFile=null, _trimUrl=null, _trimCb=null;
