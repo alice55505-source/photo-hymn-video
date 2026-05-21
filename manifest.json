@@ -1,27 +1,17 @@
 {
   "name": "基督徒回顧影片製作",
   "short_name": "詩歌影片",
-  "description": "上傳照片與影片，搭配詩歌背景音樂，輕鬆製作基督徒回顧影片。",
-  "start_url": "/",
-  "scope": "/",
+  "description": "上傳照片與影片，搭配詩歌背景音樂，製作基督徒回顧影片",
+  "start_url": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#fdf6ee",
+  "background_color": "#c0392b",
   "theme_color": "#c0392b",
-  "lang": "zh-TW",
-  "prefer_related_applications": false,
-  "categories": ["utilities", "multimedia"],
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]
