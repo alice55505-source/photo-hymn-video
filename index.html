@@ -755,126 +755,353 @@ function checkReady() {
 }
 
 // ── 製作影片 ──
+const CAN_LOCAL = typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
+
 document.getElementById('make-btn').addEventListener('click', async () => {
   if (!photos.length || !selectedMusic) return;
-  const btn          = document.getElementById('make-btn');
-  const progressWrap = document.getElementById('progress-bar-wrap');
-  const progressBar  = document.getElementById('progress-bar');
-  const dlLink       = document.getElementById('download-link');
+  CAN_LOCAL ? await makeVideoLocally() : await makeVideoRemote();
+});
+
+// ── 本地合成（WebCodecs，主路徑） ────────────────────────
+async function makeVideoLocally() {
+  const btn    = document.getElementById('make-btn');
+  const dlLink = document.getElementById('download-link');
+  btn.disabled = true;
+  dlLink.style.display = 'none';
+  setProgress(5);
+  setStatus('info', '📦 載入合成工具⋯⋯');
+
+  try {
+    const { Muxer, ArrayBufferTarget } = await import(
+      'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.esm.min.js'
+    );
+
+    const FPS = 24, W = 1280, H = 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    // 找支援的 H.264 codec
+    const h264List = ['avc1.640034', 'avc1.4d0028', 'avc1.42002a', 'avc1.420028', 'avc1.42001f'];
+    let videoCodec = null;
+    for (const c of h264List) {
+      try {
+        const s = await VideoEncoder.isConfigSupported({ codec: c, width: W, height: H, framerate: FPS });
+        if (s.supported) { videoCodec = c; break; }
+      } catch {}
+    }
+    if (!videoCodec) {
+      setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
+      setProgress(0);
+      return makeVideoRemote();
+    }
+
+    const target = new ArrayBufferTarget();
+    const muxer  = new Muxer({
+      target,
+      video: { codec: 'avc', width: W, height: H },
+      audio: { codec: 'aac', sampleRate: 44100, numberOfChannels: 2 },
+      fastStart: 'in-memory'
+    });
+
+    const videoEncoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: e => { throw e; }
+    });
+    videoEncoder.configure({
+      codec: videoCodec, width: W, height: H,
+      bitrate: 5_000_000, framerate: FPS, latencyMode: 'quality'
+    });
+
+    let tsUs = 0;
+
+    // 片頭
+    const introTitle = (document.getElementById('intro-title')?.value || '').trim();
+    if (introTitle || introPhotoData) {
+      setStatus('info', '🎬 合成片頭⋯⋯');
+      await drawIntroToCanvas(ctx, W, H, introTitle, introPhotoData);
+      tsUs = await encodeStatic(canvas, videoEncoder, 3, FPS, tsUs);
+      setProgress(8);
+    }
+
+    // 照片與影片
+    for (let i = 0; i < photos.length; i++) {
+      const p = photos[i];
+      setProgress(8 + Math.round((i / photos.length) * 74));
+      setStatus('info', `🎬 合成中：第 ${i + 1} / ${photos.length} 個素材⋯⋯`);
+
+      if (p.type === 'video') {
+        tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, FPS, W, H, tsUs);
+      } else {
+        const bmp = await loadBitmap(p.dataUrl);
+        drawCover(ctx, bmp, W, H);
+        bmp.close();
+        if (p.text) drawTextOverlay(ctx, p.text, W, H);
+        tsUs = await encodeStatic(canvas, videoEncoder, 4, FPS, tsUs);
+      }
+    }
+
+    await videoEncoder.flush();
+    const totalSec = tsUs / 1_000_000;
+
+    // 背景音樂
+    setProgress(83);
+    setStatus('info', '🎵 混入背景音樂⋯⋯');
+    const audioRes = await fetch(selectedMusic.url);
+    const audioCtx = new AudioContext({ sampleRate: 44100 });
+    const decoded  = await audioCtx.decodeAudioData(await audioRes.arrayBuffer());
+    audioCtx.close();
+
+    const audioEncoder = new AudioEncoder({
+      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      error: e => { throw e; }
+    });
+    audioEncoder.configure({
+      codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000
+    });
+
+    const CHUNK = 4096;
+    const totalFrames = Math.ceil(totalSec * 44100);
+    let aTs = 0;
+    for (let off = 0; off < totalFrames; off += CHUNK) {
+      const n  = Math.min(CHUNK, totalFrames - off);
+      const ad = new AudioData({
+        format: 'f32-planar', sampleRate: 44100,
+        numberOfFrames: n, numberOfChannels: 2,
+        timestamp: aTs, data: buildAudioData(decoded, off, n)
+      });
+      audioEncoder.encode(ad);
+      ad.close();
+      aTs += Math.round((n / 44100) * 1_000_000);
+    }
+    await audioEncoder.flush();
+
+    setProgress(96);
+    setStatus('info', '📦 封裝影片⋯⋯');
+    muxer.finalize();
+
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    const mb   = (blob.size / 1024 / 1024).toFixed(1);
+    setProgress(100);
+    setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+    dlLink.href     = URL.createObjectURL(blob);
+    dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
+    dlLink.style.display = 'block';
+    dlLink.click();
+
+  } catch (e) {
+    setProgress(0);
+    setStatus('error', `❌ 製作失敗：${e.message}`);
+    document.getElementById('make-btn').disabled = false;
+  }
+}
+
+// 靜態幀（照片 / 片頭）
+async function encodeStatic(canvas, encoder, durationSec, FPS, startTs) {
+  const n = Math.round(durationSec * FPS);
+  for (let f = 0; f < n; f++) {
+    const frame = new VideoFrame(canvas, {
+      timestamp: startTs + Math.round(f * 1_000_000 / FPS),
+      duration:  Math.round(1_000_000 / FPS)
+    });
+    encoder.encode(frame, { keyFrame: f === 0 });
+    frame.close();
+    if (f % 48 === 0) await new Promise(r => setTimeout(r, 0)); // 讓 UI 喘氣
+  }
+  return startTs + Math.round(durationSec * 1_000_000);
+}
+
+// 影片剪輯：逐幀 seek 擷取（用較低 fps 降低 seek 次數）
+async function encodeVideoClipFrames(p, ctx, canvas, encoder, FPS, W, H, startTs) {
+  const CLIP_FPS   = Math.min(FPS, 12);
+  const frameCount = Math.round(p.duration * CLIP_FPS);
+  const frameDurUs = Math.round(1_000_000 / CLIP_FPS);
+
+  const vid = document.createElement('video');
+  vid.src = p.dataUrl; vid.muted = true; vid.preload = 'auto';
+  await new Promise(r => { vid.onloadeddata = r; vid.load(); });
+
+  let ts = startTs;
+  for (let f = 0; f < frameCount; f++) {
+    vid.currentTime = f / CLIP_FPS;
+    await new Promise(r => { vid.onseeked = r; });
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
+    ctx.drawImage(vid,
+      (W - vid.videoWidth  * scale) / 2,
+      (H - vid.videoHeight * scale) / 2,
+      vid.videoWidth * scale, vid.videoHeight * scale);
+    if (p.text) drawTextOverlay(ctx, p.text, W, H);
+    const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
+    encoder.encode(frame, { keyFrame: f === 0 || f % 24 === 0 });
+    frame.close();
+    ts += frameDurUs;
+  }
+  vid.src = '';
+  return ts;
+}
+
+function loadBitmap(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload  = () => createImageBitmap(img).then(res).catch(rej);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+function drawCover(ctx, bmp, W, H) {
+  const scale = Math.max(W / bmp.width, H / bmp.height);
+  const dw = bmp.width * scale, dh = bmp.height * scale;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(bmp, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
+function drawTextOverlay(ctx, text, W, H) {
+  const fs = Math.round(H * 0.065);
+  ctx.save();
+  ctx.font = `bold ${fs}px "Noto Serif TC", serif`;
+  ctx.textAlign = 'center';
+  const tw = ctx.measureText(text).width;
+  const px = 36, py = 18;
+  const bw = tw + px * 2, bh = fs + py * 2;
+  const bx = (W - bw) / 2, by = H - bh - 48;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 14);
+  else ctx.rect(bx, by, bw, bh);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, W / 2, by + py + fs * 0.85);
+  ctx.restore();
+}
+
+async function drawIntroToCanvas(ctx, W, H, title, photoBase64) {
+  if (photoBase64) {
+    const bmp = await loadBitmap('data:image/jpeg;base64,' + photoBase64);
+    drawCover(ctx, bmp, W, H); bmp.close();
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#1a0a00'); g.addColorStop(1, '#2c1810');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  if (title) {
+    const fs = Math.round(H * 0.09);
+    ctx.save();
+    ctx.font = `bold ${fs}px "Noto Serif TC", serif`;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(title, W / 2, H / 2 + fs / 3);
+    ctx.restore();
+  }
+}
+
+// 從 AudioBuffer 裁切並循環填充（music shorter than video → loop）
+function buildAudioData(decoded, offsetFrames, numFrames) {
+  const numCh = decoded.numberOfChannels;
+  const srcLen = decoded.length;
+  const out = new Float32Array(2 * numFrames);
+  for (let c = 0; c < 2; c++) {
+    const src = decoded.getChannelData(Math.min(c, numCh - 1));
+    for (let i = 0; i < numFrames; i++) {
+      out[c * numFrames + i] = src[(offsetFrames + i) % srcLen];
+    }
+  }
+  return out;
+}
+
+function setProgress(pct) {
+  document.getElementById('progress-bar-wrap').style.display = 'block';
+  document.getElementById('progress-bar').style.width = pct + '%';
+}
+
+// ── 伺服器合成（後備：舊版瀏覽器 / WebCodecs 不支援時） ─
+async function makeVideoRemote() {
+  const btn         = document.getElementById('make-btn');
+  const progressBar = document.getElementById('progress-bar');
+  const dlLink      = document.getElementById('download-link');
 
   btn.disabled = true;
   dlLink.style.display = 'none';
-  progressWrap.style.display = 'block';
-  progressBar.style.width = '10%';
+  setProgress(10);
   setStatus('info', '⏳ 正在處理素材，請稍候⋯⋯');
 
   try {
-    // 壓縮照片、影片直接用已讀取的 base64
     const mediaData = await Promise.all(photos.map(p =>
       p.type === 'video' ? Promise.resolve(p.base64) : compressImage(p.dataUrl)
     ));
-    progressBar.style.width = '20%';
+    setProgress(20);
     setStatus('info', '📤 正在送出製作請求⋯⋯');
 
-    const totalDur = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
+    const totalDur    = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
     const photoPayload = photos.map((p, i) => ({
-      type: p.type || 'photo',
-      data: mediaData[i],
-      text: p.text.trim(),
-      duration: p.type === 'video' ? p.duration : 4,
+      type: p.type || 'photo', data: mediaData[i],
+      text: p.text.trim(), duration: p.type === 'video' ? p.duration : 4,
       mimeType: p.mimeType || 'image/jpeg'
     }));
-
     const payload = {
-      photos: photoPayload,
-      musicUrl: selectedMusic.url,
-      musicName: selectedMusic.name,
+      photos: photoPayload, musicUrl: selectedMusic.url, musicName: selectedMusic.name,
       introTitle: (document.getElementById('intro-title')?.value || '').trim(),
-      introPhoto: introPhotoData || '',
-      photoCount: photos.length,
-      duration: totalDur
+      introPhoto: introPhotoData || '', photoCount: photos.length, duration: totalDur
     };
-
-    // 送出前檢查 payload 大小（n8n 上限約 16MB）
     const payloadStr = JSON.stringify(payload);
-    if (payloadStr.length > 13 * 1024 * 1024) {
-      throw new Error(`素材太大（約 ${(payloadStr.length/1024/1024).toFixed(1)}MB），超過伺服器限制。\n請減少影片數量，或使用較短的影片（建議 8 秒以內）。`);
-    }
+    if (payloadStr.length > 13 * 1024 * 1024)
+      throw new Error(`素材太大（約 ${(payloadStr.length/1024/1024).toFixed(1)}MB），超過伺服器限制。`);
 
-    // POST → 立刻拿 jobId（n8n 幾秒內回應）
     const startRes = await fetch(N8N_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payloadStr
     });
-
     if (!startRes.ok) {
       let msg = `伺服器錯誤 (${startRes.status})`;
       try { const j = await startRes.json(); msg = j.message || msg; } catch {}
       throw new Error(msg);
     }
-
-    const startData = await startRes.json();
-    const jobId = startData.jobId;
+    const { jobId } = await startRes.json();
     if (!jobId) throw new Error('伺服器未回傳任務 ID，請確認 n8n workflow 設定');
+    setProgress(35);
 
-    progressBar.style.width = '35%';
-
-    // 輪詢直到完成（最多 10 分鐘）
-    const POLL_INTERVAL = 2000;
-    const POLL_TIMEOUT  = 10 * 60 * 1000;
     const startTime = Date.now();
-
     const result = await new Promise((resolve, reject) => {
       const poll = async () => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        if (elapsed * 1000 > POLL_TIMEOUT) {
-          reject(new Error('製作超時（超過 10 分鐘），請重試'));
-          return;
-        }
-        // 進度條：35% → 90%，按時間緩慢推進
-        const fakeP = Math.min(35 + elapsed * 0.45, 90);
-        progressBar.style.width = fakeP + '%';
-        const vidC = photos.filter(p=>p.type==='video').length;
+        if (elapsed * 1000 > 10 * 60 * 1000) { reject(new Error('製作超時（超過 10 分鐘），請重試')); return; }
+        progressBar.style.width = Math.min(35 + elapsed * 0.45, 90) + '%';
+        const vidC  = photos.filter(p => p.type === 'video').length;
         const hint2 = vidC > 0 ? `${photos.length} 個素材（含 ${vidC} 段影片）` : `${photos.length} 張照片`;
         setStatus('info', `🎬 合成中⋯⋯ 已等待 ${elapsed} 秒（${hint2}）`);
-
         try {
-          const res = await fetch(`${N8N_STATUS_URL}?jobId=${encodeURIComponent(jobId)}`);
+          const res  = await fetch(`${N8N_STATUS_URL}?jobId=${encodeURIComponent(jobId)}`);
           if (res.ok) {
             const data = await res.json();
             if (data.status === 'done')  { resolve(data); return; }
             if (data.status === 'error') { reject(new Error(data.message || 'ffmpeg 失敗')); return; }
           }
-        } catch { /* network hiccup, keep polling */ }
-
-        setTimeout(poll, POLL_INTERVAL);
+        } catch {}
+        setTimeout(poll, 2000);
       };
       poll();
     });
 
-    progressBar.style.width = '100%';
-
-    // base64 → Blob → 下載
+    setProgress(100);
     const binary = atob(result.base64Mp4);
     const bytes  = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const blob = new Blob([bytes], { type: 'video/mp4' });
-    const url  = URL.createObjectURL(blob);
     const mb   = (blob.size / 1024 / 1024).toFixed(1);
-
     setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
-    dlLink.href = url;
-    dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.mp4`;
+    dlLink.href = URL.createObjectURL(blob);
+    dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
     dlLink.click();
 
-  } catch(e) {
-    progressBar.style.width = '0%';
+  } catch (e) {
+    setProgress(0);
     setStatus('error', `❌ 製作失敗：${e.message}`);
     btn.disabled = false;
   }
-});
+}
 
 function setStatus(type, msg) {
   const box = document.getElementById('status-box');
