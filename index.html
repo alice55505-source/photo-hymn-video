@@ -344,30 +344,37 @@
   ::-webkit-scrollbar-track { background: #f0e6dc; }
   ::-webkit-scrollbar-thumb { background: #c8a99a; border-radius: 4px; }
 
-  /* PWA install banner */
-  .pwa-banner {
-    margin: 0 0 24px;
-    background: linear-gradient(135deg, #c0392b, #e67e22);
-    border-radius: 16px;
-    padding: 16px 18px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    box-shadow: 0 4px 16px rgba(192,57,43,.3);
+  /* PWA install overlay */
+  .pwa-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: linear-gradient(160deg, #2c1810 0%, #c0392b 50%, #e67e22 100%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 40px 28px; text-align: center;
+    animation: pwaFadeIn .35s ease;
   }
-  .pwa-banner-ico { font-size: 2rem; flex-shrink: 0; }
-  .pwa-banner-txt { flex: 1; color: #fff; }
-  .pwa-banner-title { font-size: 1rem; font-weight: 700; }
-  .pwa-banner-sub { font-size: .85rem; opacity: .85; margin-top: 3px; line-height: 1.4; }
-  .pwa-banner-btn {
-    background: #fff; color: #c0392b; border: none;
-    border-radius: 10px; padding: 8px 16px;
-    font-size: .95rem; font-weight: 700; cursor: pointer; flex-shrink: 0;
+  @keyframes pwaFadeIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: scale(1); } }
+  .pwa-overlay-icon { font-size: 5rem; margin-bottom: 20px; }
+  .pwa-overlay-title { font-size: 2rem; font-weight: 700; color: #fff; letter-spacing: 3px; margin-bottom: 10px; font-family: 'Noto Serif TC', serif; }
+  .pwa-overlay-sub { font-size: 1.1rem; color: rgba(255,255,255,.8); margin-bottom: 40px; line-height: 1.7; }
+  .pwa-overlay-steps { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 36px; }
+  .pwa-overlay-step { background: rgba(255,255,255,.15); border-radius: 14px; padding: 16px 20px; display: flex; align-items: center; gap: 16px; text-align: left; }
+  .pwa-overlay-step-ico { font-size: 1.8rem; flex-shrink: 0; }
+  .pwa-overlay-step-txt { color: #fff; }
+  .pwa-overlay-step-txt strong { display: block; font-size: 1rem; font-weight: 700; }
+  .pwa-overlay-step-txt span { font-size: .85rem; opacity: .8; }
+  .pwa-overlay-btn {
+    width: 100%; max-width: 380px; padding: 20px;
+    background: #fff; color: #c0392b;
+    border: none; border-radius: 16px;
+    font-size: 1.3rem; font-weight: 700; cursor: pointer;
+    font-family: 'Noto Serif TC', serif; letter-spacing: 2px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.25); margin-bottom: 14px;
+  }
+  .pwa-overlay-skip {
+    background: none; border: none; color: rgba(255,255,255,.6);
+    font-size: 1rem; cursor: pointer; padding: 8px;
     font-family: 'Noto Serif TC', serif;
-  }
-  .pwa-banner-close {
-    background: none; border: none; color: rgba(255,255,255,.7);
-    font-size: 1.2rem; cursor: pointer; flex-shrink: 0; line-height: 1;
   }
 </style>
 </head>
@@ -809,8 +816,8 @@ async function makeVideoLocally() {
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
 
-    // 找支援的 H.264 codec
-    const h264List = ['avc1.640034', 'avc1.4d0028', 'avc1.42002a', 'avc1.420028', 'avc1.42001f'];
+    // 找支援的 H.264 codec（優先選相容性最高的 Baseline/Main Profile）
+    const h264List = ['avc1.42E01E', 'avc1.42001f', 'avc1.420028', 'avc1.42002a', 'avc1.4d0028', 'avc1.640034'];
     let videoCodec = null;
     for (const c of h264List) {
       try {
@@ -832,13 +839,14 @@ async function makeVideoLocally() {
       fastStart: 'in-memory'
     });
 
+    let encoderError = null;
     const videoEncoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-      error: e => { throw e; }
+      error: e => { encoderError = e; }
     });
     videoEncoder.configure({
       codec: videoCodec, width: W, height: H,
-      bitrate: 5_000_000, framerate: FPS, latencyMode: 'quality'
+      bitrate: 3_000_000, framerate: FPS
     });
 
     let tsUs = 0;
@@ -870,19 +878,22 @@ async function makeVideoLocally() {
     }
 
     await videoEncoder.flush();
+    if (encoderError) throw encoderError;
     const totalSec = tsUs / 1_000_000;
 
     // 背景音樂
     setProgress(83);
     setStatus('info', '🎵 混入背景音樂⋯⋯');
     const audioRes = await fetch(selectedMusic.url);
+    if (!audioRes.ok) throw new Error(`音樂下載失敗 (${audioRes.status})`);
     const audioCtx = new AudioContext({ sampleRate: 44100 });
     const decoded  = await audioCtx.decodeAudioData(await audioRes.arrayBuffer());
     audioCtx.close();
 
+    let audioError = null;
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-      error: e => { throw e; }
+      error: e => { audioError = e; }
     });
     audioEncoder.configure({
       codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000
@@ -903,6 +914,7 @@ async function makeVideoLocally() {
       aTs += Math.round((n / 44100) * 1_000_000);
     }
     await audioEncoder.flush();
+    if (audioError) throw audioError;
 
     setProgress(96);
     setStatus('info', '📦 封裝影片⋯⋯');
@@ -938,7 +950,9 @@ async function encodeStatic(canvas, encoder, durationSec, startTs) {
 // 影片剪輯：優先用 requestVideoFrameCallback 實時擷取，不支援則 seek
 async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   const vid = document.createElement('video');
-  vid.src = p.dataUrl; vid.muted = true;
+  // 優先使用剪輯後的 base64（來自 captureSegment），若無則用原始 blob URL
+  vid.src = p.base64 ? `data:${p.mimeType};base64,${p.base64}` : p.dataUrl;
+  vid.muted = true;
   await new Promise(r => { vid.oncanplay = r; vid.load(); });
 
   let ts = startTs;
@@ -1206,31 +1220,54 @@ function isIOS() {
 function showPWABanner() {
   if (isStandalone()) return;
   if (localStorage.getItem('pwa_dismissed')) return;
-  const el = document.getElementById('pwa-banner');
-  if (!el) return;
+  if (document.getElementById('pwa-overlay')) return;
 
+  let inner = '';
   if (deferredPrompt) {
-    el.innerHTML = `
-      <div class="pwa-banner">
-        <div class="pwa-banner-ico">🎬</div>
-        <div class="pwa-banner-txt">
-          <div class="pwa-banner-title">安裝到主畫面</div>
-          <div class="pwa-banner-sub">像 App 一樣快速開啟</div>
-        </div>
-        <button class="pwa-banner-btn" onclick="triggerInstall()">安裝</button>
-        <button class="pwa-banner-close" onclick="dismissPWA()">✕</button>
-      </div>`;
+    inner = `
+      <div class="pwa-overlay-icon">🎬</div>
+      <div class="pwa-overlay-title">基督徒回顧影片</div>
+      <div class="pwa-overlay-sub">安裝到主畫面<br>像 App 一樣隨時開啟</div>
+      <button class="pwa-overlay-btn" onclick="triggerInstall()">📲 &nbsp;立即安裝</button>
+      <button class="pwa-overlay-skip" onclick="dismissPWA()">下次再說</button>`;
   } else if (isIOS()) {
-    el.innerHTML = `
-      <div class="pwa-banner">
-        <div class="pwa-banner-ico">🎬</div>
-        <div class="pwa-banner-txt">
-          <div class="pwa-banner-title">安裝到主畫面</div>
-          <div class="pwa-banner-sub">點底部「分享」→「加入主畫面」</div>
+    inner = `
+      <div class="pwa-overlay-icon">🎬</div>
+      <div class="pwa-overlay-title">基督徒回顧影片</div>
+      <div class="pwa-overlay-sub">加入主畫面，像 App 一樣開啟</div>
+      <div class="pwa-overlay-steps">
+        <div class="pwa-overlay-step">
+          <div class="pwa-overlay-step-ico">⬆️</div>
+          <div class="pwa-overlay-step-txt">
+            <strong>點底部「分享」</strong>
+            <span>Safari 底部工具列的方塊＋箭頭圖示</span>
+          </div>
         </div>
-        <button class="pwa-banner-close" onclick="dismissPWA()">✕</button>
-      </div>`;
+        <div class="pwa-overlay-step">
+          <div class="pwa-overlay-step-ico">➕</div>
+          <div class="pwa-overlay-step-txt">
+            <strong>選「加入主畫面」</strong>
+            <span>捲動選單找到此選項</span>
+          </div>
+        </div>
+        <div class="pwa-overlay-step">
+          <div class="pwa-overlay-step-ico">✅</div>
+          <div class="pwa-overlay-step-txt">
+            <strong>點右上角「新增」</strong>
+            <span>完成！從主畫面開啟即為 App</span>
+          </div>
+        </div>
+      </div>
+      <button class="pwa-overlay-skip" onclick="dismissPWA()">知道了</button>`;
+  } else {
+    return;
   }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pwa-overlay';
+  overlay.className = 'pwa-overlay';
+  overlay.innerHTML = inner;
+  document.body.appendChild(overlay);
 }
 
 function triggerInstall() {
@@ -1244,8 +1281,8 @@ function triggerInstall() {
 
 function dismissPWA() {
   localStorage.setItem('pwa_dismissed', '1');
-  const el = document.getElementById('pwa-banner');
-  if (el) el.innerHTML = '';
+  const el = document.getElementById('pwa-overlay');
+  if (el) el.remove();
 }
 
 window.addEventListener('beforeinstallprompt', e => {
