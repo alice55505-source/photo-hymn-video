@@ -1163,6 +1163,11 @@ function compressImage(dataUrl) {
 loadMusicList();
 updateSummary();
 
+// 註冊 Service Worker（Chrome 安裝 PWA 的必要條件）
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 // ── PWA 安裝引導 ──────────────────────────────────────
 let deferredInstallPrompt = null;
 
