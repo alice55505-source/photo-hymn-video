@@ -525,7 +525,8 @@ function addPhotos(files) {
         openTrimmer(file, url, result => {
           photos.push({ type: 'video', file, dataUrl: result.blobUrl,
             name: file.name, text: '',
-            duration: result.duration, mimeType: result.mimeType });
+            duration: result.duration, mimeType: result.mimeType,
+            includeAudio: result.includeAudio });
           renderPhotoList();
         });
       };
@@ -939,7 +940,7 @@ async function makeVideoLocally() {
       if (p.type === 'video') {
         const clipStartSec = tsUs / 1_000_000;
         tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
-        videoRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl });
+        videoRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl, includeAudio: p.includeAudio !== false });
       } else {
         const bmp = await loadBitmap(p.dataUrl);
         tsUs = await encodeKenBurns(p, bmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
@@ -1226,6 +1227,7 @@ function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeO
       // 計算背景音樂 gain（影片段落降低，附漸變）
       let musicGain = 1.0;
       for (const vr of videoAudioBuffers) {
+        if (!vr.includeAudio) continue; // 不保留聲音時背景音樂不降低
         const rampInStart  = vr.startSec - RAMP;
         const rampOutEnd   = vr.endSec   + RAMP;
         if (globalSec >= vr.startSec && globalSec < vr.endSec) {
@@ -1250,7 +1252,7 @@ function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeO
 
       // 混入影片原聲
       for (const vr of videoAudioBuffers) {
-        if (!vr.decoded || globalSec < vr.startSec || globalSec >= vr.endSec) continue;
+        if (!vr.decoded || !vr.includeAudio || globalSec < vr.startSec || globalSec >= vr.endSec) continue;
         const clipFrame = Math.floor((globalSec - vr.startSec) * 44100);
         const ch = Math.min(c, vr.decoded.numberOfChannels - 1);
         const clipSrc = vr.decoded.getChannelData(ch);
@@ -1584,8 +1586,9 @@ async function doTrim(){
       return;
     }
     const blobUrl=URL.createObjectURL(blob);
+    const includeAudio=document.getElementById('taudio').checked;
     closeTrimmer();
-    if(_trimCb) _trimCb({blobUrl, mimeType:blob.type, duration:dur});
+    if(_trimCb) _trimCb({blobUrl, mimeType:blob.type, duration:dur, includeAudio});
   }catch(err){
     alert('剪輯失敗：'+err.message);
   }finally{
@@ -1634,9 +1637,15 @@ function captureSegment(video, startTime, endTime){
       </div>
     </div>
 
-    <div style="text-align:center;font-size:0.95rem;color:#e67e22;font-weight:700;margin-bottom:10px;">
+    <div style="text-align:center;font-size:0.95rem;color:#e67e22;font-weight:700;margin-bottom:12px;">
       <span id="twininfo">0:00 ～ 0:08（8.0s）</span>
     </div>
+
+    <!-- 是否保留素材聲音 -->
+    <label style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px;cursor:pointer;">
+      <input type="checkbox" id="taudio" checked style="width:20px;height:20px;accent-color:#c0392b;cursor:pointer;">
+      <span style="color:#ccc;font-size:0.95rem;">保留素材聲音（背景音樂會自動降低）</span>
+    </label>
 
     <div id="tproc" style="display:none;text-align:center;color:#aaa;font-size:0.88rem;padding:6px 0;"></div>
 
