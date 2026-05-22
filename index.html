@@ -919,6 +919,7 @@ async function makeVideoLocally() {
     });
 
     let tsUs = 0;
+    const videoRanges = []; // {startSec, endSec, dataUrl} 記錄影片段落位置
 
     // 片頭
     const introTitle = (document.getElementById('intro-title')?.value || '').trim();
@@ -936,7 +937,9 @@ async function makeVideoLocally() {
       setStatus('info', `🎬 合成中：第 ${i + 1} / ${photos.length} 個素材⋯⋯`);
 
       if (p.type === 'video') {
+        const clipStartSec = tsUs / 1_000_000;
         tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
+        videoRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl });
       } else {
         const bmp = await loadBitmap(p.dataUrl);
         tsUs = await encodeKenBurns(p, bmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
@@ -955,6 +958,24 @@ async function makeVideoLocally() {
     await videoEncoder.flush();
     if (encoderError) throw encoderError;
     const totalSec = tsUs / 1_000_000;
+
+    // 解碼影片素材的音訊
+    const videoAudioBuffers = [];
+    if (videoRanges.length > 0) {
+      setStatus('info', '🔊 解碼影片音訊⋯⋯');
+      const actx = new AudioContext({ sampleRate: 44100 });
+      for (const vr of videoRanges) {
+        try {
+          const res  = await fetch(vr.dataUrl);
+          const buf  = await res.arrayBuffer();
+          const dec  = await actx.decodeAudioData(buf);
+          videoAudioBuffers.push({ ...vr, decoded: dec });
+        } catch {
+          videoAudioBuffers.push({ ...vr, decoded: null });
+        }
+      }
+      await actx.close();
+    }
 
     // 背景音樂
     setProgress(83);
@@ -983,7 +1004,7 @@ async function makeVideoLocally() {
       const ad = new AudioData({
         format: 'f32-planar', sampleRate: 44100,
         numberOfFrames: n, numberOfChannels: 2,
-        timestamp: aTs, data: buildAudioData(decoded, off, n, totalFrames, fadeOutFrames)
+        timestamp: aTs, data: buildAudioData(decoded, off, n, totalFrames, fadeOutFrames, videoAudioBuffers)
       });
       audioEncoder.encode(ad);
       ad.close();
@@ -1188,22 +1209,55 @@ async function drawIntroToCanvas(ctx, W, H, title, photoBase64) {
 }
 
 // 從 AudioBuffer 裁切並循環填充，末尾套漸出（fade out）
-function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeOutFrames = 0) {
-  const numCh = decoded.numberOfChannels;
+function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeOutFrames = 0, videoAudioBuffers = []) {
+  const DUCK       = 0.15;  // 影片段落背景音樂降至 15%
+  const RAMP       = 0.3;   // 漸變時間（秒）
+  const RAMP_F     = Math.round(RAMP * 44100);
+  const numCh  = decoded.numberOfChannels;
   const srcLen = decoded.length;
-  const out = new Float32Array(2 * numFrames);
+  const out    = new Float32Array(2 * numFrames);
+
   for (let c = 0; c < 2; c++) {
     const src = decoded.getChannelData(Math.min(c, numCh - 1));
     for (let i = 0; i < numFrames; i++) {
       const globalFrame = offsetFrames + i;
-      let gain = 1.0;
-      if (fadeOutFrames > 0 && totalFrames > 0) {
-        const framesLeft = totalFrames - globalFrame;
-        if (framesLeft < fadeOutFrames) {
-          gain = Math.max(0, framesLeft / fadeOutFrames);
+      const globalSec   = globalFrame / 44100;
+
+      // 計算背景音樂 gain（影片段落降低，附漸變）
+      let musicGain = 1.0;
+      for (const vr of videoAudioBuffers) {
+        const rampInStart  = vr.startSec - RAMP;
+        const rampOutEnd   = vr.endSec   + RAMP;
+        if (globalSec >= vr.startSec && globalSec < vr.endSec) {
+          musicGain = DUCK; break;
+        } else if (globalSec >= rampInStart && globalSec < vr.startSec) {
+          const t = (globalSec - rampInStart) / RAMP;
+          musicGain = 1.0 - (1.0 - DUCK) * t; break;
+        } else if (globalSec >= vr.endSec && globalSec < rampOutEnd) {
+          const t = (globalSec - vr.endSec) / RAMP;
+          musicGain = DUCK + (1.0 - DUCK) * t; break;
         }
       }
-      out[c * numFrames + i] = src[globalFrame % srcLen] * gain;
+
+      // 尾部淡出
+      if (fadeOutFrames > 0 && totalFrames > 0) {
+        const framesLeft = totalFrames - globalFrame;
+        if (framesLeft < fadeOutFrames)
+          musicGain *= Math.max(0, framesLeft / fadeOutFrames);
+      }
+
+      let sample = src[globalFrame % srcLen] * musicGain;
+
+      // 混入影片原聲
+      for (const vr of videoAudioBuffers) {
+        if (!vr.decoded || globalSec < vr.startSec || globalSec >= vr.endSec) continue;
+        const clipFrame = Math.floor((globalSec - vr.startSec) * 44100);
+        const ch = Math.min(c, vr.decoded.numberOfChannels - 1);
+        const clipSrc = vr.decoded.getChannelData(ch);
+        if (clipFrame < clipSrc.length) sample += clipSrc[clipFrame];
+      }
+
+      out[c * numFrames + i] = Math.max(-1, Math.min(1, sample));
     }
   }
   return out;
