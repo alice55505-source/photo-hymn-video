@@ -807,9 +807,7 @@ async function makeVideoLocally() {
   setStatus('info', '📦 載入合成工具⋯⋯');
 
   try {
-    const { Muxer, ArrayBufferTarget } = await import(
-      'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.esm.min.js'
-    );
+    const { Muxer, ArrayBufferTarget } = await import('./mp4-muxer.js');
 
     const FPS = 24, W = 1280, H = 720;
     const canvas = document.createElement('canvas');

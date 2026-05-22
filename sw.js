@@ -1,5 +1,5 @@
-const CACHE = 'phv-v1';
-const ASSETS = ['./', './index.html', './manifest.json', './icon.svg'];
+const CACHE = 'phv-v2';
+const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './mp4-muxer.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
