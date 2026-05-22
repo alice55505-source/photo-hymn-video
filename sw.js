@@ -1,4 +1,4 @@
-const CACHE = 'phv-v7';
+const CACHE = 'phv-v8';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './mp4-muxer.js'];
 
 self.addEventListener('install', e => {
@@ -15,6 +15,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+
+  // 外部請求（GitHub API、CDN 等）直接走網路，不快取
+  if (url.origin !== self.location.origin) return;
+
   const isHTML = e.request.destination === 'document' ||
                  url.pathname === '/' || url.pathname.endsWith('.html');
 
