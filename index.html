@@ -1399,6 +1399,9 @@ function isStandalone() {
 function isIOS() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
 }
+function isLineApp() {
+  return /Line\//i.test(navigator.userAgent);
+}
 
 function showPWABanner() {
   if (isStandalone()) return;
@@ -1418,6 +1421,14 @@ function showPWABanner() {
       <div class="pwa-overlay-title">基督徒回顧影片</div>
       <div class="pwa-overlay-sub">加入主畫面，像 App 一樣開啟</div>
       <div class="pwa-overlay-steps">
+        ${isLineApp() ? `
+        <div class="pwa-overlay-step" style="border:2px solid rgba(255,255,100,.4);">
+          <div class="pwa-overlay-step-ico">🌐</div>
+          <div class="pwa-overlay-step-txt">
+            <strong>先用 Safari 開啟</strong>
+            <span>點右下角「⋯」→「用瀏覽器開啟」，再照下面步驟操作</span>
+          </div>
+        </div>` : ''}
         <div class="pwa-overlay-step">
           <div class="pwa-overlay-step-ico">⬆️</div>
           <div class="pwa-overlay-step-txt">
