@@ -946,35 +946,45 @@ async function encodeStatic(canvas, encoder, durationSec, startTs) {
 }
 
 // Ken Burns 緩慢縮放效果（照片用，8fps × 4秒 = 32 frames）
+// 採用「模糊背景 + contain 主圖」：直式照片完整顯示，不裁切，黑邊用模糊版填滿
 async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) {
-  const KB_FPS     = 8;
+  const KB_FPS      = 8;
   const totalFrames = Math.round(4 * KB_FPS);
   const frameDurUs  = Math.round(1_000_000 / KB_FPS);
-  const baseScale   = Math.max(W / bmp.width, H / bmp.height);
-  const ZOOM = 0.10;
+  const containScale = Math.min(W / bmp.width, H / bmp.height); // 完整顯示，不裁切
+  const coverScale   = Math.max(W / bmp.width, H / bmp.height); // 填滿畫面用（背景）
+  const ZOOM = 0.08;
 
-  // 4種交替效果：放大、縮小、放大+左移、縮小+右移
-  const patterns = [
-    { z0: 1.0,      z1: 1 + ZOOM, px:  0    },
-    { z0: 1 + ZOOM, z1: 1.0,      px:  0    },
-    { z0: 1.0,      z1: 1 + ZOOM, px: -0.04 },
-    { z0: 1 + ZOOM, z1: 1.0,      px:  0.04 },
-  ];
-  const { z0, z1, px } = patterns[idx % patterns.length];
+  const zoomIn = (idx % 2 === 0);
+  const z0 = zoomIn ? 1.0 : 1 + ZOOM;
+  const z1 = zoomIn ? 1 + ZOOM : 1.0;
 
   let ts = startTs;
   for (let f = 0; f < totalFrames; f++) {
     const t    = f / (totalFrames - 1 || 1);
     const zoom = z0 + (z1 - z0) * t;
-    const sc   = baseScale * zoom;
-    const dw   = bmp.width  * sc;
-    const dh   = bmp.height * sc;
-    const maxPX = (dw - W) / 2;
-    const panX  = Math.max(-maxPX, Math.min(maxPX, px * W * t));
 
+    // 先清黑底
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-    ctx.drawImage(bmp, (W - dw) / 2 + panX, (H - dh) / 2, dw, dh);
+
+    // 模糊背景：cover 模式填滿，遮住黑邊
+    ctx.save();
+    ctx.filter = 'blur(22px) brightness(0.55)';
+    const bgSc = coverScale * 1.05;
+    ctx.drawImage(bmp,
+      (W - bmp.width  * bgSc) / 2,
+      (H - bmp.height * bgSc) / 2,
+      bmp.width  * bgSc,
+      bmp.height * bgSc);
+    ctx.restore();
+
+    // 主圖：contain + Ken Burns，完整顯示不裁切
+    const sc = containScale * zoom;
+    const dw = bmp.width  * sc;
+    const dh = bmp.height * sc;
+    ctx.drawImage(bmp, (W - dw) / 2, (H - dh) / 2, dw, dh);
+
     if (p.text) drawTextOverlay(ctx, p.text, W, H);
 
     const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
