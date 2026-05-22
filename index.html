@@ -523,8 +523,8 @@ function addPhotos(files) {
       vid.preload = 'metadata';
       vid.onloadedmetadata = () => {
         openTrimmer(file, url, result => {
-          photos.push({ type: 'video', file, dataUrl: url,
-            base64: result.base64, name: file.name, text: '',
+          photos.push({ type: 'video', file, dataUrl: result.blobUrl,
+            name: file.name, text: '',
             duration: result.duration, mimeType: result.mimeType });
           renderPhotoList();
         });
@@ -1076,7 +1076,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
 // 影片剪輯：優先用 requestVideoFrameCallback 實時擷取，不支援則 seek
 async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   const vid = document.createElement('video');
-  vid.src = p.base64 ? `data:${p.mimeType};base64,${p.base64}` : p.dataUrl;
+  vid.src = p.dataUrl;
   vid.muted = true;
   await new Promise((res, rej) => {
     vid.oncanplay = res;
@@ -1529,12 +1529,9 @@ async function doTrim(){
       alert(`剪輯後仍有 ${mb}MB，超過 8MB。\n請選擇更短的片段（約 8 秒以內）。`);
       return;
     }
-    const reader=new FileReader();
-    reader.onload=e=>{
-      closeTrimmer();
-      if(_trimCb) _trimCb({base64:e.target.result.split(',')[1], mimeType:blob.type, duration:dur});
-    };
-    reader.readAsDataURL(blob);
+    const blobUrl=URL.createObjectURL(blob);
+    closeTrimmer();
+    if(_trimCb) _trimCb({blobUrl, mimeType:blob.type, duration:dur});
   }catch(err){
     alert('剪輯失敗：'+err.message);
   }finally{
