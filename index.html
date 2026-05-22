@@ -126,7 +126,8 @@
   .photo-row {
     display: flex;
     align-items: center;
-    gap: 14px;
+    flex-wrap: wrap;
+    gap: 10px 14px;
     background: #fffaf5;
     border: 2px solid var(--border);
     border-radius: 14px;
@@ -171,13 +172,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    width: 110px;
-    flex-shrink: 0;
+    min-width: 0;
+    flex: 1;
   }
 
-  /* 文字輸入欄 */
+  /* 文字輸入欄：佔整行，在手機上自動換到第二行 */
   .photo-text-wrap {
-    flex: 1;
+    flex-basis: 100%;
     min-width: 0;
     position: relative;
   }
@@ -868,10 +869,8 @@ async function makeVideoLocally() {
         tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
       } else {
         const bmp = await loadBitmap(p.dataUrl);
-        drawCover(ctx, bmp, W, H);
+        tsUs = await encodeKenBurns(p, bmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
         bmp.close();
-        if (p.text) drawTextOverlay(ctx, p.text, W, H);
-        tsUs = await encodeStatic(canvas, videoEncoder, 4, tsUs);
       }
     }
 
@@ -934,7 +933,7 @@ async function makeVideoLocally() {
   }
 }
 
-// 靜態幀（照片 / 片頭）：一張只編一個關鍵幀，靠 duration 撐滿時間
+// 靜態幀（片頭用）：一個關鍵幀撐滿時間
 async function encodeStatic(canvas, encoder, durationSec, startTs) {
   const frame = new VideoFrame(canvas, {
     timestamp: startTs,
@@ -943,6 +942,46 @@ async function encodeStatic(canvas, encoder, durationSec, startTs) {
   encoder.encode(frame, { keyFrame: true });
   frame.close();
   return startTs + Math.round(durationSec * 1_000_000);
+}
+
+// Ken Burns 緩慢縮放效果（照片用，8fps × 4秒 = 32 frames）
+async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) {
+  const KB_FPS     = 8;
+  const totalFrames = Math.round(4 * KB_FPS);
+  const frameDurUs  = Math.round(1_000_000 / KB_FPS);
+  const baseScale   = Math.max(W / bmp.width, H / bmp.height);
+  const ZOOM = 0.10;
+
+  // 4種交替效果：放大、縮小、放大+左移、縮小+右移
+  const patterns = [
+    { z0: 1.0,      z1: 1 + ZOOM, px:  0    },
+    { z0: 1 + ZOOM, z1: 1.0,      px:  0    },
+    { z0: 1.0,      z1: 1 + ZOOM, px: -0.04 },
+    { z0: 1 + ZOOM, z1: 1.0,      px:  0.04 },
+  ];
+  const { z0, z1, px } = patterns[idx % patterns.length];
+
+  let ts = startTs;
+  for (let f = 0; f < totalFrames; f++) {
+    const t    = f / (totalFrames - 1 || 1);
+    const zoom = z0 + (z1 - z0) * t;
+    const sc   = baseScale * zoom;
+    const dw   = bmp.width  * sc;
+    const dh   = bmp.height * sc;
+    const maxPX = (dw - W) / 2;
+    const panX  = Math.max(-maxPX, Math.min(maxPX, px * W * t));
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(bmp, (W - dw) / 2 + panX, (H - dh) / 2, dw, dh);
+    if (p.text) drawTextOverlay(ctx, p.text, W, H);
+
+    const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
+    encoder.encode(frame, { keyFrame: f === 0 });
+    frame.close();
+    ts += frameDurUs;
+  }
+  return ts;
 }
 
 // 影片剪輯：優先用 requestVideoFrameCallback 實時擷取，不支援則 seek
