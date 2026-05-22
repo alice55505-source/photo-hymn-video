@@ -1289,7 +1289,6 @@ function isIOS() {
 
 function showPWABanner() {
   if (isStandalone()) return;
-  if (localStorage.getItem('pwa_dismissed')) return;
   if (document.getElementById('pwa-overlay')) return;
 
   let inner = '';
@@ -1350,7 +1349,6 @@ function triggerInstall() {
 }
 
 function dismissPWA() {
-  localStorage.setItem('pwa_dismissed', '1');
   const el = document.getElementById('pwa-overlay');
   if (el) el.remove();
 }
