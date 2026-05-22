@@ -421,7 +421,7 @@
     <h2>確認後開始製作</h2>
     <div style="margin-bottom:20px;padding:20px;background:var(--bg);border-radius:16px;border:2px solid var(--border);">
       <div style="font-weight:700;color:var(--accent);letter-spacing:2px;margin-bottom:14px;">🎬 片頭設定（可略）</div>
-      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:20px;">
         <!-- 片頭照片 -->
         <div style="flex:0 0 auto;">
           <label style="display:block;font-size:.9rem;color:var(--muted);margin-bottom:6px;">背景照片</label>
@@ -438,6 +438,29 @@
           <label style="display:block;font-size:.9rem;color:var(--muted);margin-bottom:6px;">標題文字</label>
           <input type="text" id="intro-title" maxlength="24"
             placeholder="例：2026年終數算"
+            style="width:100%;padding:10px 14px;font-size:1.1rem;font-family:inherit;border:2px solid var(--border);border-radius:10px;outline:none;background:#fff;"
+            oninput="updateSummary()">
+          <p style="margin-top:6px;font-size:.85rem;color:var(--muted);">無照片→黑底白字；有照片→疊在照片上</p>
+        </div>
+      </div>
+      <div style="font-weight:700;color:var(--accent);letter-spacing:2px;margin-bottom:14px;">🎞️ 片尾設定（可略）</div>
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+        <!-- 片尾照片 -->
+        <div style="flex:0 0 auto;">
+          <label style="display:block;font-size:.9rem;color:var(--muted);margin-bottom:6px;">背景照片</label>
+          <div id="outro-photo-zone" onclick="document.getElementById('outro-photo-input').click()"
+            style="width:120px;height:80px;border:2px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:#fff;">
+            <span id="outro-photo-placeholder" style="font-size:.85rem;color:var(--muted);text-align:center;line-height:1.4;">點此上傳<br>片尾照片</span>
+            <img id="outro-photo-preview" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;">
+          </div>
+          <input type="file" id="outro-photo-input" accept="image/*" style="display:none">
+          <button id="outro-photo-clear" onclick="clearOutroPhoto()" style="display:none;margin-top:4px;font-size:.8rem;background:none;border:none;color:var(--muted);cursor:pointer;text-decoration:underline;">移除照片</button>
+        </div>
+        <!-- 片尾文字 -->
+        <div style="flex:1;min-width:180px;">
+          <label style="display:block;font-size:.9rem;color:var(--muted);margin-bottom:6px;">結尾文字</label>
+          <input type="text" id="outro-title" maxlength="24"
+            placeholder="例：感謝主恩典"
             style="width:100%;padding:10px 14px;font-size:1.1rem;font-family:inherit;border:2px solid var(--border);border-radius:10px;outline:none;background:#fff;"
             oninput="updateSummary()">
           <p style="margin-top:6px;font-size:.85rem;color:var(--muted);">無照片→黑底白字；有照片→疊在照片上</p>
@@ -468,7 +491,8 @@ let photos = [];
 let selectedMusic = null;
 let audioPlayer = null;
 let dragSrcIdx = null;
-let introPhotoData = null; // base64 of intro background photo
+let introPhotoData = null;
+let outroPhotoData = null;
 const PREVIEW_SEC = 20;
 let previewTimerId = null;
 let previewIntervalId = null;
@@ -625,6 +649,30 @@ function clearIntroPhoto() {
   document.getElementById('intro-photo-preview').style.display = 'none';
   document.getElementById('intro-photo-placeholder').style.display = 'block';
   document.getElementById('intro-photo-clear').style.display = 'none';
+  updateSummary();
+}
+
+document.getElementById('outro-photo-input').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const b64 = ev.target.result.split(',')[1];
+    outroPhotoData = b64;
+    document.getElementById('outro-photo-preview').src = 'data:image/jpeg;base64,' + b64;
+    document.getElementById('outro-photo-preview').style.display = 'block';
+    document.getElementById('outro-photo-placeholder').style.display = 'none';
+    document.getElementById('outro-photo-clear').style.display = 'block';
+    updateSummary();
+  };
+  reader.readAsDataURL(file);
+});
+
+function clearOutroPhoto() {
+  outroPhotoData = null;
+  document.getElementById('outro-photo-input').value = '';
+  document.getElementById('outro-photo-preview').style.display = 'none';
+  document.getElementById('outro-photo-placeholder').style.display = 'block';
+  document.getElementById('outro-photo-clear').style.display = 'none';
   updateSummary();
 }
 
@@ -796,6 +844,14 @@ function updateSummary() {
     if (introTitle)    parts.push(`"${introTitle}"`);
     lines.push(`🎬 片頭：${parts.join(' + ')}`);
   }
+  const outroTitle = (document.getElementById('outro-title')?.value || '').trim();
+  const hasOutroPhoto = !!outroPhotoData;
+  if (hasOutroPhoto || outroTitle) {
+    const parts = [];
+    if (hasOutroPhoto) parts.push('有照片');
+    if (outroTitle)    parts.push(`"${outroTitle}"`);
+    lines.push(`🎞️ 片尾：${parts.join(' + ')}`);
+  }
   s.innerHTML = lines.join('<br>') || '（請先完成步驟 1 和 2）';
 }
 
@@ -886,6 +942,14 @@ async function makeVideoLocally() {
         tsUs = await encodeKenBurns(p, bmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
         bmp.close();
       }
+    }
+
+    // 片尾
+    const outroTitle = (document.getElementById('outro-title')?.value || '').trim();
+    if (outroTitle || outroPhotoData) {
+      setStatus('info', '🎞️ 合成片尾⋯⋯');
+      await drawIntroToCanvas(ctx, W, H, outroTitle, outroPhotoData);
+      tsUs = await encodeStatic(canvas, videoEncoder, 3, tsUs);
     }
 
     await videoEncoder.flush();
