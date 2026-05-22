@@ -686,6 +686,15 @@ async function loadMusicList() {
   }
 }
 
+function formatSongName(name) {
+  return name
+    .replace(/([！？!?，,。、：；])/g, '$1<br>')   // 標點後換行
+    .replace(/([(（【\[])/g, '<br>$1')              // 括號前換行
+    .replace(/([一-鿿])\s*([A-Za-z])/g, '$1<br>$2')  // 中文接英文換行
+    .replace(/^(<br>)+/, '')                        // 去掉開頭多餘換行
+    .replace(/(<br>){2,}/g, '<br>');                // 去掉連續換行
+}
+
 function renderMusicGrid() {
   const grid = document.getElementById('music-grid');
   grid.innerHTML = '';
@@ -702,7 +711,7 @@ function renderMusicGrid() {
     card.className = 'music-card';
     card.innerHTML = `
       <span class="music-icon">🎵</span>
-      <div><div class="music-name">${s.name}</div></div>
+      <div class="music-name">${formatSongName(s.name)}</div>
       <button class="play-btn" title="試聽 20 秒">▶</button>
       <div class="music-preview-bar"></div>
     `;
