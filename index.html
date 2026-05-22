@@ -1276,7 +1276,13 @@ loadMusicList();
 updateSummary();
 
 // ── PWA ───────────────────────────────────────────────
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // 新版 SW 接管時自動重新載入，確保使用者看到最新內容
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  });
+}
 
 let deferredPrompt = null;
 
