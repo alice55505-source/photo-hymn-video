@@ -1,4 +1,4 @@
-const CACHE = 'phv-v14';
+const CACHE = 'phv-v15';
 const ASSETS = ['./manifest.json', './icon.svg', './mp4-muxer.js'];
 
 self.addEventListener('install', e => {
@@ -20,10 +20,13 @@ self.addEventListener('fetch', e => {
   // 外部請求（GitHub API、CDN 等）直接走網路
   if (url.origin !== self.location.origin) return;
 
-  // HTML 完全不介入，讓瀏覽器自己處理（永遠拿最新版）
+  // HTML：強制跳過 HTTP 快取，永遠向 server 驗證最新版
   const isHTML = e.request.destination === 'document' ||
                  url.pathname === '/' || url.pathname.endsWith('.html');
-  if (isHTML) return;
+  if (isHTML) {
+    e.respondWith(fetch(e.request, { cache: 'no-cache' }).catch(() => Response.error()));
+    return;
+  }
 
   // 靜態資源：Cache-First
   e.respondWith(
