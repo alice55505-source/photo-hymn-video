@@ -248,9 +248,10 @@
   .music-card {
     border: 2.5px solid var(--border);
     border-radius: 14px;
-    padding: 16px 18px;
+    padding: 14px 10px 12px;
     cursor: pointer;
-    display: flex; align-items: center; gap: 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    text-align: center;
     transition: border-color .2s, background .2s;
     background: #fffaf5;
     position: relative;
@@ -258,15 +259,15 @@
   }
   .music-card:hover { border-color: var(--accent2); background: #fff5ec; }
   .music-card.selected { border-color: var(--accent); background: #fff0e8; }
-  .music-icon { font-size: 2.2rem; flex-shrink: 0; }
-  .music-name { font-size: 1.3rem; font-weight: 700; }
+  .music-icon { font-size: 1.8rem; }
+  .music-name { font-size: .9rem; font-weight: 700; line-height: 1.35; word-break: break-all; }
   .music-card .play-btn {
-    margin-left: auto; background: none; border: none;
-    font-size: 1.5rem; cursor: pointer; color: var(--accent2);
-    min-width: 64px; display: flex; align-items: center;
-    justify-content: center; gap: 4px; white-space: nowrap;
+    margin-top: 4px; background: none; border: none;
+    font-size: 1.3rem; cursor: pointer; color: var(--accent2);
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; white-space: nowrap;
   }
-  .play-btn .cd { font-size: .85rem; opacity: .8; }
+  .play-btn .cd { font-size: .8rem; opacity: .8; }
   .music-preview-bar {
     position: absolute; bottom: 0; left: 0;
     height: 4px; width: 0%;
