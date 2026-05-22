@@ -1424,6 +1424,7 @@ showPWABanner();
 let _trimFile=null, _trimUrl=null, _trimCb=null;
 let _trimStart=0, _trimEnd=0, _trimTotal=0;
 let _trimEventsReady=false;
+const TRIM_WIN=8; // 固定視窗長度（秒）
 
 function fmtT(s){
   const m=Math.floor(s/60), ss=Math.floor(s%60).toString().padStart(2,'0');
@@ -1432,10 +1433,8 @@ function fmtT(s){
 
 function updateTrimUI(){
   if(!_trimTotal) return;
-  document.getElementById('tst').textContent=fmtT(_trimStart);
-  document.getElementById('tet').textContent=fmtT(_trimEnd);
   const dur=_trimEnd-_trimStart;
-  document.getElementById('tdur').textContent=`片段：${dur.toFixed(1)}s${dur>8?' ⚠️超過8s':''}`;
+  document.getElementById('twininfo').textContent=`${fmtT(_trimStart)} ～ ${fmtT(_trimEnd)}（${dur.toFixed(1)}s）`;
   const sp=_trimStart/_trimTotal, ep=_trimEnd/_trimTotal;
   document.getElementById('tsel').style.left=(sp*100)+'%';
   document.getElementById('tsel').style.width=((ep-sp)*100)+'%';
@@ -1450,12 +1449,14 @@ function openTrimmer(file, objectUrl, onDone) {
   vid.onloadedmetadata=()=>{
     _trimTotal=vid.duration;
     _trimStart=0;
-    _trimEnd=Math.min(_trimTotal,8);
-    const SR=document.getElementById('tsr'), ER=document.getElementById('ter');
-    SR.max=ER.max=10000;
+    _trimEnd=Math.min(_trimTotal, TRIM_WIN);
+    const SR=document.getElementById('tsr');
+    SR.max=10000;
     SR.value=0;
-    ER.value=Math.round((_trimEnd/_trimTotal)*10000);
+    // 影片比視窗短：禁用滑桿
+    SR.disabled=(_trimTotal<=TRIM_WIN);
     updateTrimUI();
+    vid.currentTime=0;
   };
 }
 
@@ -1468,26 +1469,14 @@ function closeTrimmer(){
 function setupTrimmerEvents(){
   const vid=document.getElementById('tv');
   const SR=document.getElementById('tsr');
-  const ER=document.getElementById('ter');
 
   SR.addEventListener('input',()=>{
-    _trimStart=(_trimTotal*SR.value/10000);
-    if(_trimStart>=_trimEnd-0.3){
-      _trimEnd=Math.min(_trimTotal,_trimStart+0.3);
-      ER.value=Math.round((_trimEnd/_trimTotal)*10000);
-    }
+    // slider 值 0~10000 對應 0~(total-TRIM_WIN)
+    const maxStart=Math.max(0, _trimTotal-TRIM_WIN);
+    _trimStart=maxStart*(SR.value/10000);
+    _trimEnd=Math.min(_trimTotal, _trimStart+TRIM_WIN);
     updateTrimUI();
     vid.currentTime=_trimStart;
-  });
-
-  ER.addEventListener('input',()=>{
-    _trimEnd=(_trimTotal*ER.value/10000);
-    if(_trimEnd<=_trimStart+0.3){
-      _trimStart=Math.max(0,_trimEnd-0.3);
-      SR.value=Math.round((_trimStart/_trimTotal)*10000);
-    }
-    updateTrimUI();
-    vid.currentTime=_trimEnd;
   });
 
   vid.addEventListener('timeupdate',()=>{
@@ -1500,7 +1489,7 @@ function setupTrimmerEvents(){
 
 async function doTrim(){
   const dur=_trimEnd-_trimStart;
-  if(dur<0.3){alert('請選擇至少 0.3 秒的片段');return;}
+  if(dur<0.3){alert('片段太短');return;}
   const vid=document.getElementById('tv');
   const proc=document.getElementById('tproc');
   proc.textContent=`⏳ 剪輯中，請等待約 ${Math.ceil(dur)} 秒⋯⋯`;
@@ -1561,29 +1550,20 @@ function captureSegment(video, startTime, endTime){
     <h3 style="color:#fff;font-size:1.25rem;margin-bottom:12px;letter-spacing:1px;">✂️ 快速剪輯影片</h3>
     <video id="tv" style="width:100%;border-radius:10px;background:#000;max-height:280px;" preload="metadata" playsinline controls></video>
 
-    <!-- 選取範圍顯示條 -->
-    <div style="position:relative;height:8px;background:#333;border-radius:4px;margin:14px 0 8px;overflow:hidden;">
-      <div id="tsel" style="position:absolute;top:0;bottom:0;background:#c0392b;border-radius:4px;transition:left .05s,width .05s;"></div>
+    <!-- 時間軸（顯示選取區間） -->
+    <div style="position:relative;height:10px;background:#333;border-radius:5px;margin:14px 0 6px;">
+      <div id="tsel" style="position:absolute;top:0;bottom:0;background:#c0392b;border-radius:5px;transition:left .05s,width .05s;"></div>
     </div>
 
-    <!-- 開始 slider -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-      <span style="color:#888;font-size:0.82rem;min-width:28px;">開始</span>
+    <!-- 單一滑桿：拖動視窗位置 -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <span style="color:#888;font-size:0.82rem;white-space:nowrap;">← 拖移位置 →</span>
       <input type="range" id="tsr" min="0" max="10000" value="0" step="1"
              style="flex:1;accent-color:#c0392b;cursor:pointer;">
-      <span id="tst" style="color:#e67e22;font-size:0.88rem;min-width:38px;text-align:right;font-weight:700;">0:00</span>
-    </div>
-
-    <!-- 結束 slider -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-      <span style="color:#888;font-size:0.82rem;min-width:28px;">結束</span>
-      <input type="range" id="ter" min="0" max="10000" value="10000" step="1"
-             style="flex:1;accent-color:#c0392b;cursor:pointer;">
-      <span id="tet" style="color:#e67e22;font-size:0.88rem;min-width:38px;text-align:right;font-weight:700;">0:00</span>
     </div>
 
     <div style="text-align:center;font-size:0.95rem;color:#e67e22;font-weight:700;margin-bottom:10px;">
-      <span id="tdur">片段：0s</span>
+      <span id="twininfo">0:00 ～ 0:08（8.0s）</span>
     </div>
 
     <div id="tproc" style="display:none;text-align:center;color:#aaa;font-size:0.88rem;padding:6px 0;"></div>
