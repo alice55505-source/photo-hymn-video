@@ -633,7 +633,7 @@ async function loadMusicList() {
   const grid = document.getElementById('music-grid');
   const tabsEl = document.getElementById('music-tabs');
   try {
-    const res = await fetch(MUSIC_TREE_URL);
+    const res = await fetch(MUSIC_TREE_URL, { cache: 'no-store' });
     if (!res.ok) throw new Error('無法連接音樂庫');
     const { tree } = await res.json();
 
@@ -1277,7 +1277,7 @@ updateSummary();
 
 // ── PWA ───────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
   // 新版 SW 接管時自動重新載入，確保使用者看到最新內容
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     window.location.reload();
