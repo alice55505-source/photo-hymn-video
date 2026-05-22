@@ -897,14 +897,15 @@ async function makeVideoLocally() {
     });
 
     const CHUNK = 4096;
-    const totalFrames = Math.ceil(totalSec * 44100);
+    const totalFrames  = Math.ceil(totalSec * 44100);
+    const fadeOutFrames = Math.round(2.5 * 44100); // 最後 2.5 秒漸出
     let aTs = 0;
     for (let off = 0; off < totalFrames; off += CHUNK) {
       const n  = Math.min(CHUNK, totalFrames - off);
       const ad = new AudioData({
         format: 'f32-planar', sampleRate: 44100,
         numberOfFrames: n, numberOfChannels: 2,
-        timestamp: aTs, data: buildAudioData(decoded, off, n)
+        timestamp: aTs, data: buildAudioData(decoded, off, n, totalFrames, fadeOutFrames)
       });
       audioEncoder.encode(ad);
       ad.close();
@@ -1107,15 +1108,23 @@ async function drawIntroToCanvas(ctx, W, H, title, photoBase64) {
   }
 }
 
-// 從 AudioBuffer 裁切並循環填充（music shorter than video → loop）
-function buildAudioData(decoded, offsetFrames, numFrames) {
+// 從 AudioBuffer 裁切並循環填充，末尾套漸出（fade out）
+function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeOutFrames = 0) {
   const numCh = decoded.numberOfChannels;
   const srcLen = decoded.length;
   const out = new Float32Array(2 * numFrames);
   for (let c = 0; c < 2; c++) {
     const src = decoded.getChannelData(Math.min(c, numCh - 1));
     for (let i = 0; i < numFrames; i++) {
-      out[c * numFrames + i] = src[(offsetFrames + i) % srcLen];
+      const globalFrame = offsetFrames + i;
+      let gain = 1.0;
+      if (fadeOutFrames > 0 && totalFrames > 0) {
+        const framesLeft = totalFrames - globalFrame;
+        if (framesLeft < fadeOutFrames) {
+          gain = Math.max(0, framesLeft / fadeOutFrames);
+        }
+      }
+      out[c * numFrames + i] = src[globalFrame % srcLen] * gain;
     }
   }
   return out;
