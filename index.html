@@ -710,7 +710,8 @@ function renderMusicGrid() {
     if (selectedMusic && selectedMusic.url === s.url) card.classList.add('selected');
 
     card.addEventListener('click', e => {
-      if (e.target.classList.contains('play-btn')) { togglePlay(card, s.url, e.target); return; }
+      const btn = e.target.closest('.play-btn');
+      if (btn) { togglePlay(card, s.url, btn); return; }
       selectMusic(card, s.filename, s.url);
     });
     grid.appendChild(card);
