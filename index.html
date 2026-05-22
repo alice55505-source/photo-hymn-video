@@ -633,7 +633,7 @@ async function loadMusicList() {
   const grid = document.getElementById('music-grid');
   const tabsEl = document.getElementById('music-tabs');
   try {
-    const res = await fetch(MUSIC_TREE_URL, { cache: 'no-store' });
+    const res = await fetch(MUSIC_TREE_URL + '&_t=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) throw new Error('無法連接音樂庫');
     const { tree } = await res.json();
 
