@@ -16,7 +16,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+TC:wght@400;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Iansui&family=Noto+Serif+TC:wght@400;700&display=swap');
 
   :root {
     --bg: #fdf6ee;
@@ -38,7 +38,7 @@
       radial-gradient(circle at 20% 20%, #fde8d8 0%, transparent 50%),
       radial-gradient(circle at 80% 80%, #fdf0e0 0%, transparent 50%);
     min-height: 100vh;
-    font-family: 'Noto Serif TC', serif;
+    font-family: 'Iansui', 'Noto Serif TC', serif;
     color: var(--text);
     padding: 24px 16px 60px;
   }
@@ -183,7 +183,7 @@
     position: relative;
   }
   .photo-text-input {
-    font-family: 'GenSenRounded2 TW B', sans-serif;
+    font-family: 'Iansui', 'Noto Serif TC', serif;
     font-size: 1.55rem;
     width: 100%;
     padding: 9px 14px;
@@ -195,7 +195,7 @@
     transition: border-color .2s, background .2s;
   }
   .photo-text-input:focus { border-color: var(--accent2); }
-  .photo-text-input::placeholder { color: #c8aba0; font-size: 1.1rem; font-family: 'Noto Serif TC', serif; }
+  .photo-text-input::placeholder { color: #c8aba0; font-size: 1.1rem; font-family: 'Iansui', 'Noto Serif TC', serif; }
   .photo-text-input.has-text {
     border-color: #7ec87a;
     background: #f4fff3;
@@ -227,7 +227,7 @@
     border-radius: 20px;
     border: 2px solid var(--border);
     background: #fffaf5;
-    font-family: 'Noto Serif TC', serif;
+    font-family: 'Iansui', 'Noto Serif TC', serif;
     font-size: 1.05rem;
     font-weight: 700;
     cursor: pointer;
@@ -283,7 +283,7 @@
     border-radius: 16px;
     padding: 24px;
     font-size: 2rem;
-    font-family: 'Noto Serif TC', serif;
+    font-family: 'Iansui', 'Noto Serif TC', serif;
     font-weight: 700;
     cursor: pointer;
     letter-spacing: 4px;
@@ -333,7 +333,7 @@
     border-radius: 14px;
     padding: 18px 28px;
     font-size: 1.6rem;
-    font-family: 'Noto Serif TC', serif;
+    font-family: 'Iansui', 'Noto Serif TC', serif;
     font-weight: 700;
     text-decoration: none;
     text-align: center;
@@ -356,7 +356,7 @@
   }
   @keyframes pwaFadeIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: scale(1); } }
   .pwa-overlay-icon { font-size: 5rem; margin-bottom: 20px; }
-  .pwa-overlay-title { font-size: 2rem; font-weight: 700; color: #fff; letter-spacing: 3px; margin-bottom: 10px; font-family: 'Noto Serif TC', serif; }
+  .pwa-overlay-title { font-size: 2rem; font-weight: 700; color: #fff; letter-spacing: 3px; margin-bottom: 10px; font-family: 'Iansui', 'Noto Serif TC', serif; }
   .pwa-overlay-sub { font-size: 1.1rem; color: rgba(255,255,255,.8); margin-bottom: 40px; line-height: 1.7; }
   .pwa-overlay-steps { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 36px; }
   .pwa-overlay-step { background: rgba(255,255,255,.15); border-radius: 14px; padding: 16px 20px; display: flex; align-items: center; gap: 16px; text-align: left; }
@@ -369,13 +369,13 @@
     background: #fff; color: #c0392b;
     border: none; border-radius: 16px;
     font-size: 1.3rem; font-weight: 700; cursor: pointer;
-    font-family: 'Noto Serif TC', serif; letter-spacing: 2px;
+    font-family: 'Iansui', 'Noto Serif TC', serif; letter-spacing: 2px;
     box-shadow: 0 6px 24px rgba(0,0,0,.25); margin-bottom: 14px;
   }
   .pwa-overlay-skip {
     background: none; border: none; color: rgba(255,255,255,.6);
     font-size: 1rem; cursor: pointer; padding: 8px;
-    font-family: 'Noto Serif TC', serif;
+    font-family: 'Iansui', 'Noto Serif TC', serif;
   }
 </style>
 </head>
@@ -809,6 +809,7 @@ async function makeVideoLocally() {
 
   try {
     const { Muxer, ArrayBufferTarget } = await import('./mp4-muxer.js');
+    await document.fonts.load("bold 72px 'Iansui'").catch(() => {});
 
     const FPS = 24, W = 1280, H = 720;
     const canvas = document.createElement('canvas');
@@ -1078,21 +1079,23 @@ function drawCover(ctx, bmp, W, H) {
 }
 
 function drawTextOverlay(ctx, text, W, H) {
-  const fs = Math.round(H * 0.065);
+  let fs = Math.round(H * 0.07);
   ctx.save();
-  ctx.font = `bold ${fs}px "Noto Serif TC", serif`;
-  ctx.textAlign = 'center';
-  const tw = ctx.measureText(text).width;
-  const px = 36, py = 18;
-  const bw = tw + px * 2, bh = fs + py * 2;
-  const bx = (W - bw) / 2, by = H - bh - 48;
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 14);
-  else ctx.rect(bx, by, bw, bh);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillText(text, W / 2, by + py + fs * 0.85);
+  ctx.font = `bold ${fs}px 'Iansui', 'Noto Serif TC', serif`;
+  const maxW = W * 0.88;
+  if (ctx.measureText(text).width > maxW) {
+    fs = Math.round(fs * maxW / ctx.measureText(text).width);
+    ctx.font = `bold ${fs}px 'Iansui', 'Noto Serif TC', serif`;
+  }
+  const pad = Math.round(W * 0.035);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(4, Math.round(fs * 0.18));
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeText(text, pad, pad);
+  ctx.fillStyle = '#111111';
+  ctx.fillText(text, pad, pad);
   ctx.restore();
 }
 
@@ -1107,13 +1110,24 @@ async function drawIntroToCanvas(ctx, W, H, title, photoBase64) {
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
   if (title) {
-    const fs = Math.round(H * 0.09);
+    let fs = Math.round(H * 0.22);
     ctx.save();
-    ctx.font = `bold ${fs}px "Noto Serif TC", serif`;
+    ctx.font = `bold ${fs}px 'Iansui', 'Noto Serif TC', serif`;
+    const target = W * 0.7;
+    const measured = ctx.measureText(title).width;
+    if (measured > target) {
+      fs = Math.round(fs * target / measured);
+    }
+    fs = Math.min(fs, Math.round(H * 0.28));
+    ctx.font = `bold ${fs}px 'Iansui', 'Noto Serif TC', serif`;
     ctx.textAlign = 'center';
-    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 16;
-    ctx.fillStyle = '#fff';
-    ctx.fillText(title, W / 2, H / 2 + fs / 3);
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(6, Math.round(fs * 0.12));
+    ctx.strokeStyle = '#ffffff';
+    ctx.strokeText(title, W / 2, H / 2);
+    ctx.fillStyle = '#111111';
+    ctx.fillText(title, W / 2, H / 2);
     ctx.restore();
   }
 }

@@ -1,74 +1,73 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- 紅底 -->
-  <rect width="512" height="512" rx="108" fill="#c0392b"/>
+  <!-- 橘紅底 -->
+  <rect width="512" height="512" rx="108" fill="#e8501a"/>
 
-  <!-- 底片條（白色，左側延伸至捲軸下方） -->
-  <rect x="10" y="213" width="280" height="78" rx="5" fill="#fff"/>
+  <!-- 底片條（黑色） -->
+  <rect x="10" y="213" width="280" height="78" rx="5" fill="#1a1a1a"/>
 
-  <!-- 頂部齒孔（15個，y=217，間距18px） -->
-  <rect x="18" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="36" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="54" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="72" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="90" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="108" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="126" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="144" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="162" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="180" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="198" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="216" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="234" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="252" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="270" y="217" width="8" height="8" rx="2" fill="#c0392b"/>
+  <!-- 頂部齒孔（15個，y=217，白色） -->
+  <rect x="18" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="36" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="54" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="72" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="90" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="108" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="126" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="144" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="162" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="180" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="198" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="216" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="234" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="252" y="217" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="270" y="217" width="8" height="8" rx="2" fill="#fff"/>
 
-  <!-- 底部齒孔（15個，y=279） -->
-  <rect x="18" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="36" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="54" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="72" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="90" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="108" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="126" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="144" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="162" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="180" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="198" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="216" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="234" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="252" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
-  <rect x="270" y="279" width="8" height="8" rx="2" fill="#c0392b"/>
+  <!-- 底部齒孔（15個，y=279，白色） -->
+  <rect x="18" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="36" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="54" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="72" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="90" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="108" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="126" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="144" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="162" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="180" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="198" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="216" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="234" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="252" y="279" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="270" y="279" width="8" height="8" rx="2" fill="#fff"/>
 
-  <!-- 影格（2個紅色畫面區） -->
-  <rect x="18" y="229" width="84" height="46" rx="3" fill="#c0392b"/>
-  <rect x="114" y="229" width="84" height="46" rx="3" fill="#c0392b"/>
+  <!-- 影格（2個白色畫面區） -->
+  <rect x="18" y="229" width="84" height="46" rx="3" fill="#fff"/>
+  <rect x="114" y="229" width="84" height="46" rx="3" fill="#fff"/>
 
-  <!-- 膠卷捲軸圓盤（白色，蓋在底片條右半段上方） -->
-  <circle cx="340" cy="252" r="148" fill="#fff"/>
+  <!-- 膠卷捲軸圓盤（黑色） -->
+  <circle cx="340" cy="252" r="148" fill="#1a1a1a"/>
 
-  <!-- 6個扇形洞（輪輻間隔 60°，洞各 40° 寬，左側 180° 位置為實心輪輻與底片相連）
-       洞的中心角：30°,90°,150°,210°,270°,330° -->
+  <!-- 6個扇形洞（白色） -->
   <!-- 洞1：10°→50° -->
-  <path fill="#c0392b" d="M375,258 L486,278 A148,148 0 0,1 435,365 L363,279 A35,35 0 0,0 375,258Z"/>
+  <path fill="#fff" d="M375,258 L486,278 A148,148 0 0,1 435,365 L363,279 A35,35 0 0,0 375,258Z"/>
   <!-- 洞2：70°→110° -->
-  <path fill="#c0392b" d="M352,285 L391,391 A148,148 0 0,1 289,391 L328,285 A35,35 0 0,0 352,285Z"/>
+  <path fill="#fff" d="M352,285 L391,391 A148,148 0 0,1 289,391 L328,285 A35,35 0 0,0 352,285Z"/>
   <!-- 洞3：130°→170° -->
-  <path fill="#c0392b" d="M318,279 L245,365 A148,148 0 0,1 194,278 L306,258 A35,35 0 0,0 318,279Z"/>
+  <path fill="#fff" d="M318,279 L245,365 A148,148 0 0,1 194,278 L306,258 A35,35 0 0,0 318,279Z"/>
   <!-- 洞4：190°→230° -->
-  <path fill="#c0392b" d="M306,246 L194,226 A148,148 0 0,1 245,139 L318,225 A35,35 0 0,0 306,246Z"/>
-  <!-- 洞5：250°→290°（頂部） -->
-  <path fill="#c0392b" d="M328,219 L289,113 A148,148 0 0,1 391,113 L352,219 A35,35 0 0,0 328,219Z"/>
+  <path fill="#fff" d="M306,246 L194,226 A148,148 0 0,1 245,139 L318,225 A35,35 0 0,0 306,246Z"/>
+  <!-- 洞5：250°→290° -->
+  <path fill="#fff" d="M328,219 L289,113 A148,148 0 0,1 391,113 L352,219 A35,35 0 0,0 328,219Z"/>
   <!-- 洞6：310°→350° -->
-  <path fill="#c0392b" d="M363,225 L435,139 A148,148 0 0,1 486,226 L375,246 A35,35 0 0,0 363,225Z"/>
+  <path fill="#fff" d="M363,225 L435,139 A148,148 0 0,1 486,226 L375,246 A35,35 0 0,0 363,225Z"/>
 
   <!-- 中心轉軸 -->
-  <circle cx="340" cy="252" r="32" fill="#c0392b"/>
-  <circle cx="340" cy="252" r="14" fill="#fff"/>
+  <circle cx="340" cy="252" r="32" fill="#fff"/>
+  <circle cx="340" cy="252" r="14" fill="#1a1a1a"/>
 
-  <!-- 音符（白色，左下角紅色空間） -->
-  <ellipse cx="68" cy="398" rx="17" ry="13"
-           transform="rotate(-20 68 398)" fill="#fff"/>
-  <rect x="82" y="357" width="9" height="44" rx="4" fill="#fff"/>
-  <path d="M91,359 C120,368 118,392 91,394"
-        fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/>
+  <!-- 音符（黃色，左下角，加大） -->
+  <ellipse cx="68" cy="400" rx="23" ry="17"
+           transform="rotate(-20 68 400)" fill="#f1c40f"/>
+  <rect x="88" y="350" width="12" height="54" rx="5" fill="#f1c40f"/>
+  <path d="M100,352 C136,363 133,393 100,396"
+        fill="none" stroke="#f1c40f" stroke-width="12" stroke-linecap="round"/>
 </svg>
