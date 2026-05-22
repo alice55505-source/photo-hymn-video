@@ -1,4 +1,4 @@
-const CACHE = 'phv-v16';
+const CACHE = 'phv-v17';
 const ASSETS = ['./manifest.json', './icon.svg', './mp4-muxer.js'];
 
 self.addEventListener('install', e => {
@@ -11,8 +11,6 @@ self.addEventListener('activate', e => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: 'window' }))
-      .then(clients => clients.forEach(c => c.navigate(c.url)))
   );
 });
 
