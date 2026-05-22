@@ -1,45 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <pattern id="st" x="0" y="0" width="72" height="72"
-             patternUnits="userSpaceOnUse"
-             patternTransform="rotate(-45 256 186)">
-      <rect width="72" height="72" fill="#1a1a1a"/>
-      <rect width="36" height="72" fill="#fff"/>
-    </pattern>
-    <clipPath id="cp">
-      <rect x="72" y="144" width="368" height="80" rx="14"/>
-    </clipPath>
-  </defs>
-
-  <!-- 紅底背景 -->
+  <!-- 紅底 -->
   <rect width="512" height="512" rx="108" fill="#c0392b"/>
 
-  <!-- 打板主體（白色板面） -->
-  <rect x="72" y="216" width="368" height="246" rx="18" fill="#fff"/>
+  <!-- 膠卷圓盤（白色） -->
+  <circle cx="256" cy="256" r="175" fill="#fff"/>
 
-  <!-- 打板上方斜紋條 -->
-  <g clip-path="url(#cp)">
-    <rect x="0" y="0" width="512" height="512" fill="url(#st)"/>
-  </g>
+  <!-- 3 個扇形洞（紅色 = 與背景同色，視覺上是透明洞） -->
+  <!-- 洞1：右上方（-85° 到 25°，順時針） -->
+  <path fill="#c0392b"
+    d="M261,204 L271,82 A175,175 0 0,1 415,330 L303,278 A52,52 0 0,0 261,204Z"/>
+  <!-- 洞2：下方（35° 到 145°） -->
+  <path fill="#c0392b"
+    d="M299,286 L399,356 A175,175 0 0,1 113,356 L213,286 A52,52 0 0,0 299,286Z"/>
+  <!-- 洞3：左方（155° 到 265°） -->
+  <path fill="#c0392b"
+    d="M209,278 L97,330 A175,175 0 0,1 241,82 L251,204 A52,52 0 0,0 209,278Z"/>
 
-  <!-- 斜紋區輪廓 -->
-  <rect x="72" y="144" width="368" height="80" rx="14"
-        fill="none" stroke="#1a1a1a" stroke-width="5"/>
+  <!-- 中心轉軸（紅色圓） -->
+  <circle cx="256" cy="256" r="50" fill="#c0392b"/>
+  <!-- 轉軸中心點（白色） -->
+  <circle cx="256" cy="256" r="18" fill="#fff"/>
 
-  <!-- 打板與板面分隔線 -->
-  <rect x="72" y="222" width="368" height="8" fill="#d0c0b0"/>
+  <!-- 齒孔（每條輪輻兩個小洞） -->
+  <!-- 上方輪輻（270°）：r=100, r=143 -->
+  <circle cx="256" cy="156" r="11" fill="#c0392b"/>
+  <circle cx="256" cy="113" r="11" fill="#c0392b"/>
+  <!-- 右下輪輻（30°）：cos≈0.866, sin≈0.5 -->
+  <circle cx="343" cy="306" r="11" fill="#c0392b"/>
+  <circle cx="380" cy="327" r="11" fill="#c0392b"/>
+  <!-- 左下輪輻（150°）：cos≈-0.866, sin≈0.5 -->
+  <circle cx="169" cy="306" r="11" fill="#c0392b"/>
+  <circle cx="132" cy="327" r="11" fill="#c0392b"/>
 
-  <!-- 板面橫線 -->
-  <rect x="106" y="272" width="200" height="12" rx="6" fill="#e8d5c4"/>
-  <rect x="106" y="308" width="160" height="12" rx="6" fill="#e8d5c4"/>
-  <rect x="106" y="344" width="180" height="12" rx="6" fill="#e8d5c4"/>
-
+  <!-- 音樂符號（白色，右下角紅色背景上） -->
   <!-- 音符頭 -->
-  <ellipse cx="362" cy="406" rx="30" ry="23"
-           transform="rotate(-20 362 406)" fill="#e67e22"/>
+  <ellipse cx="390" cy="426" rx="24" ry="19"
+           transform="rotate(-20 390 426)" fill="#fff"/>
   <!-- 音符莖 -->
-  <rect x="387" y="322" width="14" height="88" rx="7" fill="#e67e22"/>
+  <rect x="409" y="358" width="12" height="71" rx="6" fill="#fff"/>
   <!-- 音符旗 -->
-  <path d="M401 324 C445 338 443 382 401 382"
-        fill="none" stroke="#e67e22" stroke-width="14" stroke-linecap="round"/>
+  <path d="M421,360 C458,372 456,408 421,411"
+        fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round"/>
 </svg>
