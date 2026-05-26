@@ -1300,9 +1300,17 @@ async function makeVideoRemote() {
   setStatus('info', '⏳ 正在處理素材，請稍候⋯⋯');
 
   try {
-    const mediaData = await Promise.all(photos.map(p =>
-      p.type === 'video' ? Promise.resolve(p.base64) : compressImage(p.dataUrl)
-    ));
+    const mediaData = await Promise.all(photos.map(p => {
+      if (p.type === 'video') {
+        return fetch(p.dataUrl).then(r => r.arrayBuffer()).then(buf => {
+          const bytes = new Uint8Array(buf);
+          let bin = '';
+          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+          return btoa(bin);
+        });
+      }
+      return compressImage(p.dataUrl);
+    }));
     setProgress(20);
     setStatus('info', '📤 正在送出製作請求⋯⋯');
 
@@ -1315,7 +1323,10 @@ async function makeVideoRemote() {
     const payload = {
       photos: photoPayload, musicUrl: selectedMusic.url, musicName: selectedMusic.name,
       introTitle: (document.getElementById('intro-title')?.value || '').trim(),
-      introPhoto: introPhotoData || '', photoCount: photos.length, duration: totalDur
+      introPhoto: introPhotoData || '',
+      outroTitle: (document.getElementById('outro-title')?.value || '').trim(),
+      outroPhoto: outroPhotoData || '',
+      photoCount: photos.length, duration: totalDur
     };
     const payloadStr = JSON.stringify(payload);
     if (payloadStr.length > 13 * 1024 * 1024)
