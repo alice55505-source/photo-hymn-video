@@ -861,7 +861,11 @@ function checkReady() {
 }
 
 // ── 製作影片 ──
-const CAN_LOCAL = typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
+// iOS Safari 的 WebCodecs 實作有 bug：configure() 不報錯但 encode() 會丟
+// "VideoEncoder is not configured"，因此 iOS 裝置直接走伺服器路徑
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const CAN_LOCAL = !isIOS && typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
 
 document.getElementById('make-btn').addEventListener('click', async () => {
   if (!photos.length || !selectedMusic) return;
