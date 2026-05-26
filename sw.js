@@ -1,4 +1,4 @@
-const CACHE = 'phv-v17';
+const CACHE = 'phv-v18';
 const ASSETS = ['./manifest.json', './icon.svg', './mp4-muxer.js'];
 
 self.addEventListener('install', e => {
