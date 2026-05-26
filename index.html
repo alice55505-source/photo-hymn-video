@@ -861,11 +861,7 @@ function checkReady() {
 }
 
 // ── 製作影片 ──
-// iOS Safari 的 WebCodecs 實作有 bug：configure() 不報錯但 encode() 會丟
-// "VideoEncoder is not configured"，因此 iOS 裝置直接走伺服器路徑
-const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const CAN_LOCAL = !isIOS && typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
+const CAN_LOCAL = typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
 
 document.getElementById('make-btn').addEventListener('click', async () => {
   if (!photos.length || !selectedMusic) return;
@@ -1045,6 +1041,11 @@ async function makeVideoLocally() {
     dlLink.click();
 
   } catch (e) {
+    if (e.message && e.message.includes('not configured')) {
+      setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
+      setProgress(0);
+      return makeVideoRemote();
+    }
     setProgress(0);
     setStatus('error', `❌ 製作失敗：${e.message}`);
     document.getElementById('make-btn').disabled = false;
