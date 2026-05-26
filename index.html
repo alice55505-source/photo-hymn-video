@@ -914,10 +914,23 @@ async function makeVideoLocally() {
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: e => { encoderError = e; }
     });
-    videoEncoder.configure({
-      codec: videoCodec, width: W, height: H,
-      bitrate: 3_000_000, framerate: FPS
-    });
+    try {
+      videoEncoder.configure({
+        codec: videoCodec, width: W, height: H,
+        bitrate: 3_000_000, framerate: FPS
+      });
+    } catch {
+      setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
+      setProgress(0);
+      return makeVideoRemote();
+    }
+    // 等一個 microtask，讓非同步的 configure 錯誤有機會觸發 error callback
+    await new Promise(r => setTimeout(r, 0));
+    if (encoderError || videoEncoder.state !== 'configured') {
+      setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
+      setProgress(0);
+      return makeVideoRemote();
+    }
 
     let tsUs = 0;
     const videoRanges = []; // {startSec, endSec, dataUrl} 記錄影片段落位置
