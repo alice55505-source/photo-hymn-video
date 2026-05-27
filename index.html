@@ -882,7 +882,7 @@ async function makeVideoLocally() {
     const { Muxer, ArrayBufferTarget } = await import('./mp4-muxer.js');
     await document.fonts.load("bold 72px 'Iansui'").catch(() => {});
 
-    const FPS = 24, W = 960, H = 540;
+    const FPS = 24, W = 1280, H = 720;
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
