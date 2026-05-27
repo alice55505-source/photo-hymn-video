@@ -612,7 +612,7 @@ function renderPhotoList() {
   // 提示
   const hint = document.getElementById('photo-count-hint');
   if (photos.length > 0) {
-    const totalDur = photos.reduce((s, p) => s + (p.type === 'video' ? Math.round(p.duration) : 3), 0);
+    const totalDur = photos.reduce((s, p) => s + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
     const vidCount = photos.filter(p => p.type === 'video').length;
     const withText = photos.filter(p => p.text.trim()).length;
     hint.style.display = 'block';
@@ -827,7 +827,7 @@ function updateSummary() {
   const photoCount = photos.filter(p => p.type !== 'video').length;
   const vidCount   = photos.filter(p => p.type === 'video').length;
   const withText   = photos.filter(p => p.text.trim()).length;
-  const totalDur   = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 3), 0);
+  const totalDur   = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
   let lines = [];
   if (photos.length > 0) {
     const parts = [];
@@ -882,7 +882,7 @@ async function makeVideoLocally() {
     const { Muxer, ArrayBufferTarget } = await import('./mp4-muxer.js');
     await document.fonts.load("bold 72px 'Iansui'").catch(() => {});
 
-    const FPS = 24, W = 960, H = 540;
+    const FPS = 24, W = 1280, H = 720;
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
@@ -918,7 +918,8 @@ async function makeVideoLocally() {
     try {
       videoEncoder.configure({
         codec: videoCodec, width: W, height: H,
-        bitrate: 1_500_000, framerate: FPS
+        bitrate: 2_000_000, framerate: FPS,
+        latencyMode: 'realtime'
       });
     } catch {
       setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
@@ -1075,8 +1076,8 @@ async function encodeStatic(canvas, encoder, durationSec, startTs) {
 // Ken Burns 緩慢縮放效果（照片用，8fps × 4秒 = 32 frames）
 // 採用「模糊背景 + contain 主圖」：直式照片完整顯示，不裁切，黑邊用模糊版填滿
 async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) {
-  const KB_FPS      = 6;
-  const totalFrames = Math.round(3 * KB_FPS);
+  const KB_FPS      = 8;
+  const totalFrames = Math.round(4 * KB_FPS);
   const frameDurUs  = Math.round(1_000_000 / KB_FPS);
   const containScale = Math.min(W / bmp.width, H / bmp.height); // 完整顯示，不裁切
   const coverScale   = Math.max(W / bmp.width, H / bmp.height); // 填滿畫面用（背景）
@@ -1085,7 +1086,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
   // 預先把模糊背景畫好一次，避免每幀都重算 blur（手機很慢）
   const bgCanvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const bgCtx = bgCanvas.getContext('2d');
-  bgCtx.filter = 'blur(14px) brightness(0.55)';
+  bgCtx.filter = 'blur(22px) brightness(0.55)';
   const bgSc = coverScale * 1.05;
   bgCtx.drawImage(bmp,
     (W - bmp.width  * bgSc) / 2,
@@ -1115,10 +1116,6 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
 
     if (p.text) drawTextOverlay(ctx, p.text, W, H);
 
-    while (encoder.encodeQueueSize > 8) {
-      await new Promise(r => setTimeout(r, 16));
-    }
-    if (f % 3 === 0) await new Promise(r => setTimeout(r, 0));
     const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
     encoder.encode(frame, { keyFrame: f === 0 });
     frame.close();
@@ -1139,7 +1136,7 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
     vid.load();
   });
 
-  const CLIP_FPS   = 8;
+  const CLIP_FPS   = 10;
   const frameCount = Math.round(p.duration * CLIP_FPS);
   const frameDurUs = Math.round(1_000_000 / CLIP_FPS);
   let ts = startTs;
@@ -1328,10 +1325,10 @@ async function makeVideoRemote() {
     setProgress(20);
     setStatus('info', '📤 正在送出製作請求⋯⋯');
 
-    const totalDur    = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 3), 0);
+    const totalDur    = photos.reduce((a, p) => a + (p.type === 'video' ? Math.round(p.duration) : 4), 0);
     const photoPayload = photos.map((p, i) => ({
       type: p.type || 'photo', data: mediaData[i],
-      text: p.text.trim(), duration: p.type === 'video' ? p.duration : 3,
+      text: p.text.trim(), duration: p.type === 'video' ? p.duration : 4,
       mimeType: p.mimeType || 'image/jpeg',
       trimStart: p.trimStart || 0
     }));
@@ -1411,7 +1408,7 @@ function compressImage(dataUrl) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const maxW = 1280, maxH = 720;
+      const maxW = 1920, maxH = 1080;
       let w = img.width, h = img.height;
       if (w > maxW || h > maxH) {
         const r = Math.min(maxW/w, maxH/h);
