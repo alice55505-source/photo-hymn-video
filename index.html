@@ -882,7 +882,7 @@ async function makeVideoLocally() {
     const { Muxer, ArrayBufferTarget } = await import('./mp4-muxer.js');
     await document.fonts.load("bold 72px 'Iansui'").catch(() => {});
 
-    const FPS = 24, W = 1280, H = 720;
+    const FPS = 24, W = 960, H = 540;
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
@@ -918,7 +918,8 @@ async function makeVideoLocally() {
     try {
       videoEncoder.configure({
         codec: videoCodec, width: W, height: H,
-        bitrate: 3_000_000, framerate: FPS
+        bitrate: 2_000_000, framerate: FPS,
+        latencyMode: 'realtime'
       });
     } catch {
       setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
@@ -1074,6 +1075,18 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
   const coverScale   = Math.max(W / bmp.width, H / bmp.height); // 填滿畫面用（背景）
   const ZOOM = 0.08;
 
+  // 預先把模糊背景畫好一次，避免每幀都重算 blur（手機很慢）
+  const bgCanvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const bgCtx = bgCanvas.getContext('2d');
+  bgCtx.filter = 'blur(22px) brightness(0.55)';
+  const bgSc = coverScale * 1.05;
+  bgCtx.drawImage(bmp,
+    (W - bmp.width  * bgSc) / 2,
+    (H - bmp.height * bgSc) / 2,
+    bmp.width  * bgSc,
+    bmp.height * bgSc);
+  bgCtx.filter = 'none';
+
   const zoomIn = (idx % 2 === 0);
   const z0 = zoomIn ? 1.0 : 1 + ZOOM;
   const z1 = zoomIn ? 1 + ZOOM : 1.0;
@@ -1083,20 +1096,9 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
     const t    = f / (totalFrames - 1 || 1);
     const zoom = z0 + (z1 - z0) * t;
 
-    // 先清黑底
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-
-    // 模糊背景：cover 模式填滿，遮住黑邊
-    ctx.save();
-    ctx.filter = 'blur(22px) brightness(0.55)';
-    const bgSc = coverScale * 1.05;
-    ctx.drawImage(bmp,
-      (W - bmp.width  * bgSc) / 2,
-      (H - bmp.height * bgSc) / 2,
-      bmp.width  * bgSc,
-      bmp.height * bgSc);
-    ctx.restore();
+    ctx.drawImage(bgCanvas, 0, 0); // 直接貼預算好的模糊背景
 
     // 主圖：contain + Ken Burns，完整顯示不裁切
     const sc = containScale * zoom;
@@ -1126,7 +1128,7 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
     vid.load();
   });
 
-  const CLIP_FPS   = 15;
+  const CLIP_FPS   = 10;
   const frameCount = Math.round(p.duration * CLIP_FPS);
   const frameDurUs = Math.round(1_000_000 / CLIP_FPS);
   let ts = startTs;
