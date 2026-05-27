@@ -521,7 +521,10 @@ function addPhotos(files) {
       const url = URL.createObjectURL(file);
       const vid = document.createElement('video');
       vid.preload = 'metadata';
-      vid.onloadedmetadata = () => {
+      let opened = false;
+      const doOpen = () => {
+        if (opened) return;
+        opened = true;
         openTrimmer(file, url, result => {
           photos.push({ type: 'video', file, dataUrl: result.blobUrl,
             name: file.name, text: '',
@@ -531,7 +534,10 @@ function addPhotos(files) {
           renderPhotoList();
         });
       };
+      vid.onloadedmetadata = doOpen;
+      setTimeout(doOpen, 6000); // iOS 若 6 秒內未回應直接開啟剪輯器
       vid.src = url;
+      vid.load();
     } else {
       const reader = new FileReader();
       reader.onload = e => {
@@ -1552,7 +1558,6 @@ function openTrimmer(file, objectUrl, onDone) {
   if(!_trimEventsReady){ setupTrimmerEvents(); _trimEventsReady=true; }
   _trimFile=file; _trimUrl=objectUrl; _trimCb=onDone;
   const vid=document.getElementById('tv');
-  vid.src=objectUrl;
   document.getElementById('trimmer-modal').style.display='flex';
   vid.onloadedmetadata=()=>{
     _trimTotal=vid.duration;
@@ -1561,6 +1566,8 @@ function openTrimmer(file, objectUrl, onDone) {
     updateTrimUI();
     vid.currentTime=0;
   };
+  vid.src=objectUrl;
+  vid.load(); // iOS 需要明確呼叫 load() 才會觸發 onloadedmetadata
 }
 
 function closeTrimmer(){
@@ -1641,8 +1648,8 @@ async function doTrim(){
     }
     const blob=result;
     const mb=(blob.size/1024/1024).toFixed(1);
-    if(blob.size>8*1024*1024){
-      alert(`剪輯後仍有 ${mb}MB，超過 8MB。\n請選擇更短的片段（約 8 秒以內）。`);
+    if(blob.size>30*1024*1024){
+      alert(`剪輯後仍有 ${mb}MB，太大了。\n請選擇更短的片段。`);
       return;
     }
     const blobUrl=URL.createObjectURL(blob);
@@ -1668,7 +1675,11 @@ function captureSegment(video, startTime, endTime){
     if(!stream){
       // Canvas fallback (Safari desktop, some iOS)
       const cvs=document.createElement('canvas');
-      cvs.width=video.videoWidth||640; cvs.height=video.videoHeight||360;
+      // 限制錄製解析度，避免 iPhone 原始 4K 導致檔案過大
+      const MAX_W=1280, MAX_H=720;
+      const srcW=video.videoWidth||640, srcH=video.videoHeight||360;
+      const capScale=Math.min(1, MAX_W/srcW, MAX_H/srcH);
+      cvs.width=Math.round(srcW*capScale); cvs.height=Math.round(srcH*capScale);
       const cctx=cvs.getContext('2d');
       const cs=cvs.captureStream?cvs.captureStream(30):null;
       if(cs){
@@ -1691,19 +1702,29 @@ function captureSegment(video, startTime, endTime){
     const mime=mimes.find(m=>MediaRecorder.isTypeSupported(m))||'';
 
     let rec;
-    try{ rec=new MediaRecorder(stream, mime?{mimeType:mime}:{}); }
-    catch(e){ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); return; }
+    try{
+      const recOpts={ ...(mime?{mimeType:mime}:{}), videoBitsPerSecond:3_000_000 };
+      rec=new MediaRecorder(stream, recOpts);
+    }catch(e){ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); return; }
 
     const chunks=[];
     rec.ondataavailable=e=>{if(e.data.size>0) chunks.push(e.data);};
     rec.onstop=()=>{ if(stopCanvas)stopCanvas(); resolve(new Blob(chunks,{type:rec.mimeType||'video/webm'})); };
     rec.onerror=()=>{ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); };
+    let seekTimer;
     const onSeeked=()=>{
+      clearTimeout(seekTimer);
       video.removeEventListener('seeked',onSeeked);
       rec.start(100);
       video.play().catch(()=>{ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); });
       setTimeout(()=>{ video.pause(); rec.stop(); },(endTime-startTime)*1000+400);
     };
+    // iOS 有時 seeked 不觸發，8 秒後改用原始片段
+    seekTimer=setTimeout(()=>{
+      video.removeEventListener('seeked',onSeeked);
+      if(stopCanvas)stopCanvas();
+      resolve({untrimmed:true});
+    }, 8000);
     video.addEventListener('seeked',onSeeked);
     video.currentTime=startTime;
   });
