@@ -526,7 +526,8 @@ function addPhotos(files) {
           photos.push({ type: 'video', file, dataUrl: result.blobUrl,
             name: file.name, text: '',
             duration: result.duration, mimeType: result.mimeType,
-            includeAudio: result.includeAudio });
+            includeAudio: result.includeAudio,
+            trimStart: result.trimStart || 0 });
           renderPhotoList();
         });
       };
@@ -953,7 +954,7 @@ async function makeVideoLocally() {
       if (p.type === 'video') {
         const clipStartSec = tsUs / 1_000_000;
         tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
-        videoRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl, includeAudio: p.includeAudio !== false });
+        videoRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl, includeAudio: p.includeAudio !== false, trimStart: p.trimStart || 0 });
       } else {
         const bmp = await loadBitmap(p.dataUrl);
         tsUs = await encodeKenBurns(p, bmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
@@ -1131,7 +1132,7 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   let ts = startTs;
 
   for (let f = 0; f < frameCount; f++) {
-    vid.currentTime = f / CLIP_FPS;
+    vid.currentTime = (p.trimStart || 0) + f / CLIP_FPS;
     await new Promise(r => { vid.onseeked = r; });
 
     // backpressure：encoder queue 太滿就等一下
@@ -1271,7 +1272,7 @@ function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeO
       // 混入影片原聲
       for (const vr of videoAudioBuffers) {
         if (!vr.decoded || !vr.includeAudio || globalSec < vr.startSec || globalSec >= vr.endSec) continue;
-        const clipFrame = Math.floor((globalSec - vr.startSec) * 44100);
+        const clipFrame = Math.floor((globalSec - vr.startSec + (vr.trimStart || 0)) * 44100);
         const ch = Math.min(c, vr.decoded.numberOfChannels - 1);
         const clipSrc = vr.decoded.getChannelData(ch);
         if (clipFrame < clipSrc.length) sample += clipSrc[clipFrame];
@@ -1318,7 +1319,8 @@ async function makeVideoRemote() {
     const photoPayload = photos.map((p, i) => ({
       type: p.type || 'photo', data: mediaData[i],
       text: p.text.trim(), duration: p.type === 'video' ? p.duration : 4,
-      mimeType: p.mimeType || 'image/jpeg'
+      mimeType: p.mimeType || 'image/jpeg',
+      trimStart: p.trimStart || 0
     }));
     const payload = {
       photos: photoPayload, musicUrl: selectedMusic.url, musicName: selectedMusic.name,
@@ -1619,14 +1621,21 @@ async function doTrim(){
   document.getElementById('tconfirm').disabled=true;
   document.getElementById('tcancel').disabled=true;
   try{
-    const blob=await captureSegment(vid,_trimStart,_trimEnd);
+    const result=await captureSegment(vid,_trimStart,_trimEnd);
+    const includeAudio=document.getElementById('taudio').checked;
+    if(result && result.untrimmed){
+      // Browser doesn't support captureStream; use original video with trim markers
+      closeTrimmer();
+      if(_trimCb) _trimCb({blobUrl:_trimUrl, mimeType:_trimFile?.type||'video/mp4', duration:dur, includeAudio, trimStart:_trimStart});
+      return;
+    }
+    const blob=result;
     const mb=(blob.size/1024/1024).toFixed(1);
     if(blob.size>8*1024*1024){
       alert(`剪輯後仍有 ${mb}MB，超過 8MB。\n請選擇更短的片段（約 8 秒以內）。`);
       return;
     }
     const blobUrl=URL.createObjectURL(blob);
-    const includeAudio=document.getElementById('taudio').checked;
     closeTrimmer();
     if(_trimCb) _trimCb({blobUrl, mimeType:blob.type, duration:dur, includeAudio});
   }catch(err){
@@ -1641,20 +1650,48 @@ async function doTrim(){
 function captureSegment(video, startTime, endTime){
   return new Promise((resolve,reject)=>{
     video.muted=true;
-    const stream=video.captureStream?video.captureStream():(video.mozCaptureStream?video.mozCaptureStream():null);
-    if(!stream){reject(new Error('瀏覽器不支援，請使用 Chrome'));return;}
-    const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']
-      .find(m=>MediaRecorder.isTypeSupported(m))||'';
-    const rec=new MediaRecorder(stream, mime?{mimeType:mime}:{});
+
+    // Try native video stream (Chrome/Firefox)
+    let stream=video.captureStream?video.captureStream():(video.mozCaptureStream?video.mozCaptureStream():null);
+    let stopCanvas=null;
+
+    if(!stream){
+      // Canvas fallback (Safari desktop, some iOS)
+      const cvs=document.createElement('canvas');
+      cvs.width=video.videoWidth||640; cvs.height=video.videoHeight||360;
+      const cctx=cvs.getContext('2d');
+      const cs=cvs.captureStream?cvs.captureStream(30):null;
+      if(cs){
+        stream=cs;
+        let drawing=false, rafId=null;
+        const drawLoop=()=>{ if(!drawing)return; cctx.drawImage(video,0,0,cvs.width,cvs.height); rafId=requestAnimationFrame(drawLoop); };
+        const onPlay=()=>{ drawing=true; drawLoop(); };
+        video.addEventListener('play',onPlay,{once:true});
+        stopCanvas=()=>{ drawing=false; video.removeEventListener('play',onPlay); if(rafId)cancelAnimationFrame(rafId); };
+      }
+    }
+
+    // If still no stream or MediaRecorder unavailable, fall back to untrimmed
+    if(!stream||typeof MediaRecorder==='undefined'){
+      if(stopCanvas)stopCanvas();
+      resolve({untrimmed:true}); return;
+    }
+
+    const mimes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+    const mime=mimes.find(m=>MediaRecorder.isTypeSupported(m))||'';
+
+    let rec;
+    try{ rec=new MediaRecorder(stream, mime?{mimeType:mime}:{}); }
+    catch(e){ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); return; }
+
     const chunks=[];
     rec.ondataavailable=e=>{if(e.data.size>0) chunks.push(e.data);};
-    rec.onstop=()=>resolve(new Blob(chunks,{type:rec.mimeType||'video/webm'}));
-    rec.onerror=e=>reject(e.error||new Error('錄製失敗'));
-    // seek then record
+    rec.onstop=()=>{ if(stopCanvas)stopCanvas(); resolve(new Blob(chunks,{type:rec.mimeType||'video/webm'})); };
+    rec.onerror=()=>{ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); };
     const onSeeked=()=>{
       video.removeEventListener('seeked',onSeeked);
       rec.start(100);
-      video.play().catch(reject);
+      video.play().catch(()=>{ if(stopCanvas)stopCanvas(); resolve({untrimmed:true}); });
       setTimeout(()=>{ video.pause(); rec.stop(); },(endTime-startTime)*1000+400);
     };
     video.addEventListener('seeked',onSeeked);
