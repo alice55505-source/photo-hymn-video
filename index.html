@@ -1124,6 +1124,13 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
 
     if (p.text) drawTextOverlay(ctx, p.text, W, H);
 
+    // 背壓控制：queue 太滿先等，避免 GPU 記憶體耗盡導致 encoder error
+    while (encoder.encodeQueueSize > 8) {
+      await new Promise(r => setTimeout(r, 16));
+    }
+    // 每 4 幀讓步一次，讓瀏覽器有機會更新 UI、處理觸控事件
+    if (f % 4 === 0) await new Promise(r => setTimeout(r, 0));
+
     const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
     encoder.encode(frame, { keyFrame: f === 0 });
     frame.close();
