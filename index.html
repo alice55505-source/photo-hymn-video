@@ -512,7 +512,10 @@ dropZone.addEventListener('drop', e => {
 });
 
 function addPhotos(files) {
-  Array.from(files).forEach(file => {
+  const arr = Array.from(files);
+  let needRender = false;
+
+  arr.forEach(file => {
     const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|webm|mkv|m4v)$/i);
     const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpe?g|png|gif|webp|heic)$/i);
     if (!isVideo && !isImage) return;
@@ -535,18 +538,17 @@ function addPhotos(files) {
         });
       };
       vid.onloadedmetadata = doOpen;
-      setTimeout(doOpen, 6000); // iOS 若 6 秒內未回應直接開啟剪輯器
+      setTimeout(doOpen, 6000);
       vid.src = url;
       vid.load();
     } else {
-      const reader = new FileReader();
-      reader.onload = e => {
-        photos.push({ type: 'photo', file, dataUrl: e.target.result, name: file.name, text: '' });
-        renderPhotoList();
-      };
-      reader.readAsDataURL(file);
+      // blob URL 取代 FileReader：同步、省記憶體（不轉 base64）
+      photos.push({ type: 'photo', file, dataUrl: URL.createObjectURL(file), name: file.name, text: '' });
+      needRender = true;
     }
   });
+
+  if (needRender) renderPhotoList(); // 照片全部加入後統一 render 一次
 }
 
 function renderPhotoList() {
