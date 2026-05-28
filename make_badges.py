@@ -70,10 +70,9 @@ def make_badge(path):
     img = img.resize((SRC_SCALE, SRC_SCALE), Image.LANCZOS)
     img = outpaint_bleed(img, SLOT_PX)
 
-    # Circle mask inscribed in slot: diameter = SLOT_PX, drawn 1px inside edge
-    # to guarantee hard boundary with no anti-aliased bleed beyond the slot.
+    # Circle mask fills the slot exactly — no inset, no white border.
     mask = Image.new('L', (SLOT_PX, SLOT_PX), 0)
-    ImageDraw.Draw(mask).ellipse([1, 1, SLOT_PX-2, SLOT_PX-2], fill=255)
+    ImageDraw.Draw(mask).ellipse([0, 0, SLOT_PX-1, SLOT_PX-1], fill=255)
 
     result = img.convert('RGBA')
     result.putalpha(mask)
