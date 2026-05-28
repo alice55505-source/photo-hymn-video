@@ -12,7 +12,7 @@ import os
 DPI = 300
 CM  = DPI / 2.54
 
-VISIBLE_CM       = 5.8
+VISIBLE_CM       = 5.6
 LOGO_OUTER_CM    = 5.6
 LOGO_OUTER_RATIO = 0.90
 
@@ -82,7 +82,7 @@ def build_layout(badges, out_dir, basename):
             y = MARGIN_Y + row * SLOT_PX
             a4.paste(badges[col], (x, y))
 
-            # Grey inner circle = 5.8 cm visible-area guide
+            # Grey inner circle = 5.6 cm visible-area guide
             cx = x + SLOT_PX // 2
             cy = y + SLOT_PX // 2
             r  = VISIBLE_PX // 2
