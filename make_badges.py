@@ -63,20 +63,14 @@ def outpaint_bleed(img, target):
 
 
 def make_badge(path):
-    """RGBA image exactly SLOT_PX × SLOT_PX.
-    Circle inscribed perfectly — touches slot edges but does NOT overflow."""
+    """RGB image exactly SLOT_PX × SLOT_PX — no circular mask.
+    Background fills the full square (corners included).
+    The circular die cutter handles the actual cut."""
     img = Image.open(path).convert('RGB')
     img = crop_to_square(img)
     img = img.resize((SRC_SCALE, SRC_SCALE), Image.LANCZOS)
     img = outpaint_bleed(img, SLOT_PX)
-
-    # Circle mask fills the slot exactly — no inset, no white border.
-    mask = Image.new('L', (SLOT_PX, SLOT_PX), 0)
-    ImageDraw.Draw(mask).ellipse([0, 0, SLOT_PX-1, SLOT_PX-1], fill=255)
-
-    result = img.convert('RGBA')
-    result.putalpha(mask)
-    return result
+    return img
 
 
 def build_layout(badges, out_dir, basename):
@@ -87,7 +81,7 @@ def build_layout(badges, out_dir, basename):
         for col in range(COLS):
             x = MARGIN_X + col * SLOT_PX
             y = MARGIN_Y + row * SLOT_PX
-            a4.paste(badges[col], (x, y), badges[col])
+            a4.paste(badges[col], (x, y))
 
             # Grey inner circle = 5.8 cm visible-area guide
             cx = x + SLOT_PX // 2
@@ -111,9 +105,7 @@ def main():
     for i, (path, name) in enumerate(zip(PATHS, NAMES)):
         print(f'  [{i+1}/3] {name}')
         badge = make_badge(path)
-        preview = Image.new('RGB', (SLOT_PX, SLOT_PX), (255, 255, 255))
-        preview.paste(badge, (0, 0), badge)
-        preview.save(os.path.join(OUT_DIR, f'{name}.png'))
+        badge.save(os.path.join(OUT_DIR, f'{name}.png'))
         badges.append(badge)
 
     print('\nBuilding A4 layout (12 badges) ...')
