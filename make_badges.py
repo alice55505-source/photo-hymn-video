@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Badge layout: 9 badges (3 designs x3) on A4 LANDSCAPE at 300dpi
-Horizontal gap ~22mm between badges; cut grey horizontal lines into strips first.
+Badge layout: 9 badges, A4 portrait, HEX stagger (offset every other column).
+Col 0 & 2: y = 3.5, 10.5, 17.5 cm
+Col 1 (middle): y = 7, 14, 21 cm  (offset down by 3.5 cm)
+Adjacent badges between columns: ~8 mm diagonal gap.
+Cutting: slice along vertical lines x=7 cm and x=14 cm first (3 strips),
+then cut each circle from its strip.
 """
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -17,19 +21,25 @@ LOGO_OUTER_CM    = 5.6
 LOGO_OUTER_RATIO = 0.90
 
 BADGE_PX   = round(BADGE_CUT_CM * CM)           # 827 px
-VISIBLE_PX = round(VISIBLE_CM * CM)             # 685 px
+VISIBLE_PX = round(VISIBLE_CM   * CM)           # 685 px
 LOGO_PX    = round(LOGO_OUTER_CM * CM)          # 661 px
 SRC_SCALE  = round(LOGO_PX / LOGO_OUTER_RATIO)  # 734 px
+HALF       = BADGE_PX // 2                       # 413 px
 
-# A4 landscape: 297 x 210 mm → 3508 x 2480 px
-A4_W, A4_H = 3508, 2480
-COLS, ROWS = 3, 3   # 9 badges total
+# A4 portrait
+A4_W, A4_H = 2480, 3508
 
-# Vertical: 3 x 827 = 2481 ≈ 2480 → rows fill height, no vertical gap
-# Horizontal: distribute remaining width equally as gaps
-MARGIN_Y = max(0, (A4_H - ROWS * BADGE_PX) // 2)
-GAP_X    = (A4_W - COLS * BADGE_PX) // (COLS + 1)   # ~257 px ≈ 2.2 cm
-MARGIN_X = GAP_X
+# Hex stagger positions (in px)
+# 3 columns: x = 413, 1240, 2067 (centers)
+COL_X = [HALF, A4_W // 2, A4_W - HALF]
+
+# Col 0 & 2: y = 413, 1240, 2067
+# Col 1:     y = 826, 1653, 2480  (shifted down by HALF)
+COL_Y = [
+    [HALF,        HALF + BADGE_PX,        HALF + 2 * BADGE_PX],
+    [HALF + HALF, HALF + HALF + BADGE_PX, HALF + HALF + 2 * BADGE_PX],
+    [HALF,        HALF + BADGE_PX,        HALF + 2 * BADGE_PX],
+]
 
 BASE  = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
 PATHS = [
@@ -83,21 +93,23 @@ def build_layout(badges, out_dir, basename):
     a4   = Image.new('RGB', (A4_W, A4_H), (255, 255, 255))
     draw = ImageDraw.Draw(a4)
 
-    for row in range(ROWS):
-        for col in range(COLS):
-            x = MARGIN_X + col * (BADGE_PX + GAP_X)
-            y = MARGIN_Y + row * BADGE_PX
+    # Place 9 badges in hex pattern: col 0→design 0, col 1→design 1, col 2→design 2
+    for col in range(3):
+        for row in range(3):
+            cx = COL_X[col]
+            cy = COL_Y[col][row]
+            x  = cx - HALF
+            y  = cy - HALF
+
             a4.paste(badges[col], (x, y), badges[col])
 
-            # grey circle = 5.8 cm visible-area guide
-            cx, cy = x + BADGE_PX//2, y + BADGE_PX//2
+            # visible-area guide (5.8 cm)
             r = VISIBLE_PX // 2
             draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline=(160, 160, 160), width=2)
 
-    # horizontal strip-cut guides between rows
-    for row in range(1, ROWS):
-        gy = MARGIN_Y + row * BADGE_PX
-        draw.line([(0, gy), (A4_W, gy)], fill=(200, 200, 200), width=3)
+    # Vertical cut guides at x = BADGE_PX and x = 2*BADGE_PX (7 cm and 14 cm)
+    for vx in [BADGE_PX, 2 * BADGE_PX]:
+        draw.line([(vx, 0), (vx, A4_H)], fill=(200, 200, 200), width=3)
 
     png = os.path.join(out_dir, f'{basename}.png')
     pdf = os.path.join(out_dir, f'{basename}.pdf')
@@ -120,12 +132,15 @@ def main():
         preview.save(os.path.join(OUT_DIR, f'{name}.png'))
         badges.append(badge)
 
-    print('\nBuilding A4 landscape layout (9 badges) ...')
+    print('\nBuilding hex-stagger A4 layout (9 badges) ...')
     build_layout(badges, OUT_DIR, 'badge_layout_A4')
 
-    print(f'\nDone.  A4 landscape @ {DPI} dpi  |  {COLS}x{ROWS} = {COLS*ROWS} badges')
-    print(f'Badge cut Ø {BADGE_PX/CM:.1f} cm  |  H-gap ~{GAP_X/CM:.1f} cm  |  V-margin ~{MARGIN_Y/CM:.1f} cm')
-    print('Cut: first cut along the grey horizontal lines (rows), then cut each circle.')
+    import math
+    gap_mm = (math.sqrt((COL_X[1]-COL_X[0])**2 + (COL_Y[1][0]-COL_Y[0][0])**2) - BADGE_PX) / CM * 10
+    print(f'\nDone. A4 portrait @ {DPI} dpi | hex stagger 3×3 = 9 badges')
+    print(f'Diagonal gap between adjacent badges: ~{gap_mm:.1f} mm')
+    print('Cut: slice along the 2 grey vertical lines first (at 7 cm & 14 cm),')
+    print('     then cut each circle from its strip.')
 
 
 if __name__ == '__main__':
