@@ -63,13 +63,26 @@ def outpaint_bleed(img, target):
 
 
 def make_badge(path):
-    """RGB image exactly SLOT_PX × SLOT_PX.
-    Logo content scaled to LOGO_PX (5.6 cm); background outpainted to fill 7 cm slot."""
+    """Logo at LOGO_PX (5.6 cm) centred on a SLOT_PX (7 cm) canvas.
+    Background colour sampled from the logo image corners."""
     img = Image.open(path).convert('RGB')
     img = crop_to_square(img)
     img = img.resize((LOGO_PX, LOGO_PX), Image.LANCZOS)
-    img = outpaint_bleed(img, SLOT_PX)
-    return img
+
+    arr = np.array(img)
+    s = 20
+    corners = np.concatenate([
+        arr[:s, :s].reshape(-1, 3),
+        arr[:s, -s:].reshape(-1, 3),
+        arr[-s:, :s].reshape(-1, 3),
+        arr[-s:, -s:].reshape(-1, 3),
+    ])
+    bg = tuple(np.median(corners, axis=0).astype(int))
+
+    canvas = Image.new('RGB', (SLOT_PX, SLOT_PX), bg)
+    off = (SLOT_PX - LOGO_PX) // 2
+    canvas.paste(img, (off, off))
+    return canvas
 
 
 def build_layout(badges, out_dir, basename):
