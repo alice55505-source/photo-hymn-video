@@ -13,27 +13,25 @@ import os
 DPI = 300
 CM = DPI / 2.54  # px per cm
 
-# Outer logo ring ≈ 90% of source image width.
-# Scale so outer ring = 5.6 cm (inside the 5.8 cm cut line).
-LOGO_OUTER_RATIO = 0.90
+# Badge press mechanics:
+#   BADGE_CUT_CM  = full paper circle fed into the press (7 cm)
+#   VISIBLE_CM    = embossed face visible on finished badge (5.8 cm)
+#   LOGO_OUTER_CM = target outer logo ring diameter (≤ visible area)
+BADGE_CUT_CM     = 7.0
+VISIBLE_CM       = 5.8
 LOGO_OUTER_CM    = 5.6
-CUT_CM           = 5.8    # final badge cut line
-BLEED_CM         = 6.4    # cut + 3 mm bleed each side
+LOGO_OUTER_RATIO = 0.90   # outer ring ≈ 90 % of source image width
 
-LOGO_OUTER_PX = round(LOGO_OUTER_CM * CM)           # 661 px
-CUT_PX        = round(CUT_CM        * CM)           # 685 px
-BLEED_PX      = round(BLEED_CM      * CM)           # 756 px
-SRC_SCALE     = round(LOGO_OUTER_PX / LOGO_OUTER_RATIO)  # ≈ 735 px
-
-# ── A4 layout ─────────────────────────────────────────────────────────────────
-A4_W, A4_H = 2480, 3508   # A4 @ 300 dpi
+# 3 × 7 cm = 21 cm = exact A4 width → use A4_W//3 to avoid rounding overflow
+A4_W, A4_H = 2480, 3508
 COLS, ROWS  = 3, 4
-GAP_PX      = 24           # 2 mm gap between badges
+BADGE_PX    = A4_W // COLS                               # 826 px ≈ 6.99 cm
+VISIBLE_PX  = round(VISIBLE_CM  * CM)                   # 685 px
+LOGO_PX     = round(LOGO_OUTER_CM * CM)                 # 661 px
+SRC_SCALE   = round(LOGO_PX / LOGO_OUTER_RATIO)         # 734 px
 
-TOTAL_W  = COLS * BLEED_PX + (COLS - 1) * GAP_PX
-TOTAL_H  = ROWS * BLEED_PX + (ROWS - 1) * GAP_PX
-MARGIN_X = (A4_W - TOTAL_W) // 2
-MARGIN_Y = (A4_H - TOTAL_H) // 2
+MARGIN_X = (A4_W - COLS * BADGE_PX) // 2               # ≈ 1 px
+MARGIN_Y = (A4_H - ROWS * BADGE_PX) // 2               # ≈ 100 px
 
 # ── Source images ─────────────────────────────────────────────────────────────
 BASE  = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
@@ -80,17 +78,17 @@ def outpaint_bleed(img: Image.Image, target: int) -> Image.Image:
 
 
 def make_circular_badge(path: str) -> Image.Image:
-    """Return RGBA badge with circular mask at BLEED_PX diameter (corners transparent)."""
+    """Return RGBA badge: circular at BADGE_PX, logo centered in VISIBLE_PX area."""
     img = Image.open(path).convert('RGB')
     img = crop_to_square(img)
     img = img.resize((SRC_SCALE, SRC_SCALE), Image.LANCZOS)
-    img = outpaint_bleed(img, BLEED_PX)
+    img = outpaint_bleed(img, BADGE_PX)   # extend background to full 7 cm circle
 
-    # Build anti-aliased circular mask at 2× resolution then downscale
-    aa = BLEED_PX * 2
+    # Anti-aliased circular mask at BADGE_PX
+    aa = BADGE_PX * 2
     circle_mask = Image.new('L', (aa, aa), 0)
     ImageDraw.Draw(circle_mask).ellipse([0, 0, aa - 1, aa - 1], fill=255)
-    circle_mask = circle_mask.resize((BLEED_PX, BLEED_PX), Image.LANCZOS)
+    circle_mask = circle_mask.resize((BADGE_PX, BADGE_PX), Image.LANCZOS)
 
     result = img.convert('RGBA')
     result.putalpha(circle_mask)
@@ -104,17 +102,17 @@ def build_a4(badges: list, out_dir: str, basename: str):
     for row in range(ROWS):
         for col in range(COLS):
             design = col
-            x = MARGIN_X + col * (BLEED_PX + GAP_PX)
-            y = MARGIN_Y + row * (BLEED_PX + GAP_PX)
+            x = MARGIN_X + col * BADGE_PX
+            y = MARGIN_Y + row * BADGE_PX
 
-            badge = badges[design]           # RGBA, corners transparent
-            a4.paste(badge, (x, y), badge)   # use alpha channel as paste mask
+            badge = badges[design]
+            a4.paste(badge, (x, y), badge)
 
-            # thin grey cut-guide circle at the 5.8 cm cut line
-            cx, cy = x + BLEED_PX // 2, y + BLEED_PX // 2
-            r = CUT_PX // 2
+            # dashed inner circle = 5.8 cm visible area boundary
+            cx, cy = x + BADGE_PX // 2, y + BADGE_PX // 2
+            r = VISIBLE_PX // 2
             draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                         outline=(150, 150, 150), width=2)
+                         outline=(160, 160, 160), width=2)
 
     png = os.path.join(out_dir, f'{basename}.png')
     pdf = os.path.join(out_dir, f'{basename}.pdf')
@@ -135,7 +133,7 @@ def main():
         print(f'  [{i+1}/3] {name}')
         badge = make_circular_badge(path)
         # Save preview with white background
-        preview = Image.new('RGB', (BLEED_PX, BLEED_PX), (255, 255, 255))
+        preview = Image.new('RGB', (BADGE_PX, BADGE_PX), (255, 255, 255))
         preview.paste(badge, (0, 0), badge)
         preview.save(os.path.join(OUT_DIR, f'{name}.png'))
         badges.append(badge)
@@ -145,8 +143,8 @@ def main():
 
     print('\nDone.')
     print(f'\nLayout:  A4 @ {DPI} dpi  |  {COLS}×{ROWS} = {COLS*ROWS} badges')
-    print(f'Bleed Ø {BLEED_CM} cm  |  cut line Ø {CUT_CM} cm  |  logo Ø ~{LOGO_OUTER_CM} cm')
-    print(f'Margin L/R ≈ {MARGIN_X/CM:.1f} cm  |  T/B ≈ {MARGIN_Y/CM:.1f} cm')
+    print(f'Badge circle (paper cut) Ø {BADGE_PX/CM:.2f} cm  |  visible face Ø {VISIBLE_CM} cm  |  logo Ø ~{LOGO_OUTER_CM} cm')
+    print(f'Margin L/R ≈ {MARGIN_X/CM:.2f} cm  |  T/B ≈ {MARGIN_Y/CM:.1f} cm')
 
 
 if __name__ == '__main__':
