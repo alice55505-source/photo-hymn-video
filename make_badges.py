@@ -63,13 +63,12 @@ def outpaint_bleed(img, target):
 
 
 def make_badge(path):
-    """RGB image exactly SLOT_PX × SLOT_PX — no circular mask.
-    Background fills the full square (corners included).
+    """RGB image exactly SLOT_PX × SLOT_PX — no circular mask, no outpainting.
+    Background fills the full square seamlessly.
     The circular die cutter handles the actual cut."""
     img = Image.open(path).convert('RGB')
     img = crop_to_square(img)
-    img = img.resize((SRC_SCALE, SRC_SCALE), Image.LANCZOS)
-    img = outpaint_bleed(img, SLOT_PX)
+    img = img.resize((SLOT_PX, SLOT_PX), Image.LANCZOS)
     return img
 
 
