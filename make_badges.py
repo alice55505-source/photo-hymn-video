@@ -86,11 +86,6 @@ def build_layout(badges, out_dir, basename):
             y = MARGIN_Y + row * SLOT_PX
             a4.paste(badges[col], (x, y))
 
-            # Grey inner circle = 5.6 cm visible-area guide
-            cx = x + SLOT_PX // 2
-            cy = y + SLOT_PX // 2
-            r  = VISIBLE_PX // 2
-            draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline=(170, 170, 170), width=2)
 
     png = os.path.join(out_dir, f'{basename}.png')
     pdf = os.path.join(out_dir, f'{basename}.pdf')
