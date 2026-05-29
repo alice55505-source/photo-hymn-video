@@ -4,7 +4,7 @@ Badge layout: 6 badges (3 English + 3 Chinese), A4 portrait 300dpi.
 2 cols x 3 rows. Slot = 8 cm. Logo = 5.6 cm. Morandi palette.
 """
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 import numpy as np
 import os
 
@@ -29,15 +29,14 @@ ZHO1  = os.path.join(BASE, '84403272-45492.jpg')
 ZHO2  = os.path.join(BASE, 'e5ce541e-45491.jpg')
 OUT_DIR = '/home/user/photo-hymn-video/output'
 
-# 6 Morandi colours picked from the palette
-# (3 for English column, 3 for Chinese column)
+# 6 light Morandi colours — all pale/muted, fabric texture preserved via grayscale+colorize
 MORANDI = [
-    (143, 155, 130),  # sage green       – English row 0
-    (110, 128, 150),  # steel blue       – Chinese row 0
-    (178, 150, 148),  # dusty rose       – English row 1
-    (183, 166, 143),  # warm sand        – Chinese row 1
-    (153, 140, 160),  # soft lavender    – English row 2
-    (158, 135, 135),  # dusty mauve      – Chinese row 2
+    (225, 175, 165),  # coral pink       – English row 0
+    (155, 175, 200),  # soft steel blue  – Chinese row 0
+    (175, 198, 162),  # pale sage        – English row 1
+    (225, 208, 185),  # warm sand        – Chinese row 1
+    (193, 180, 213),  # pale lavender    – English row 2
+    (220, 200, 178),  # warm beige       – Chinese row 2
 ]
 
 # Each entry: (source_path, morandi_index)
@@ -58,42 +57,10 @@ def crop_to_square(img):
     return img.crop(((w-s)//2, (h-s)//2, (w+s)//2, (h+s)//2))
 
 
-def otsu_thresh(gray_arr):
-    hist = np.bincount(gray_arr.flatten(), minlength=256)
-    total = gray_arr.size
-    s1 = np.dot(np.arange(256, dtype=np.float64), hist)
-    sb = 0.0; wb = 0; best = 0.0; t = 0
-    for i in range(256):
-        wb += hist[i]
-        if wb == 0: continue
-        wf = total - wb
-        if wf == 0: break
-        sb += i * hist[i]
-        mb = sb / wb
-        mf = (s1 - sb) / wf
-        var = wb * wf * (mb - mf) ** 2
-        if var >= best:
-            best = var; t = i
-    return t
-
-
-def recolor(img_pil, bg_color):
-    """Keep white logo; replace everything else with bg_color."""
-    gray = np.array(img_pil.convert('L'))
-    t = otsu_thresh(gray)
-
-    # Soft logo mask: 1 = logo (bright), 0 = background
-    mask = np.clip((gray.astype(np.float32) - t) / max(255 - t, 1), 0, 1)
-    mask_smooth = np.array(
-        Image.fromarray((mask * 255).astype(np.uint8))
-            .filter(ImageFilter.GaussianBlur(radius=3))
-    ) / 255.0
-
-    bg = np.array(bg_color, dtype=np.float32)
-    out = np.empty((gray.shape[0], gray.shape[1], 3), dtype=np.float32)
-    for c in range(3):
-        out[:, :, c] = 255.0 * mask_smooth + bg[c] * (1 - mask_smooth)
-    return Image.fromarray(out.astype(np.uint8))
+def recolor(img_pil, tint_color):
+    """Preserve fabric texture; remap dark tones → tint_color, bright → white."""
+    gray = ImageOps.autocontrast(img_pil.convert('L'))
+    return ImageOps.colorize(gray, black=tint_color, white=(255, 255, 255))
 
 
 def make_badge(path, bg_color):
@@ -127,7 +94,7 @@ def build_layout(badges, out_dir, basename):
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    colour_names = ['sage', 'steel-blue', 'rose', 'sand', 'lavender', 'mauve']
+    colour_names = ['coral-pink', 'steel-blue', 'sage', 'sand', 'lavender', 'warm-beige']
 
     print('Processing badges ...')
     badges = []
