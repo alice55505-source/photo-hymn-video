@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Badge layout: 4 badges (3 original colours + 1 purple), A4 portrait 300dpi.
-2 cols x 2 rows. Slot = 8 cm. Logo = 5.6 cm.
+Badge layout: 6 badges, A4 portrait 300dpi.
+2 cols x 3 rows. Slot = 8 cm. Logo = 5.6 cm.
+Left col = English (3), Right col = Chinese (3).
+5 original images + 1 purple recolour.
 """
 
 from PIL import Image, ImageOps
@@ -15,29 +17,40 @@ LOGO_CM = 5.6
 SLOT_CM = 8.0
 
 A4_W, A4_H = 2480, 3508
-COLS, ROWS  = 2, 2
+COLS, ROWS  = 2, 3
 
 LOGO_PX = round(LOGO_CM * CM)   # 661 px
 SLOT_PX = round(SLOT_CM * CM)   # 945 px
 
-MARGIN_X = (A4_W - COLS * SLOT_PX) // 2   # 295 px
-MARGIN_Y = (A4_H - ROWS * SLOT_PX) // 2   # 809 px
+MARGIN_X = (A4_W - COLS * SLOT_PX) // 2
+MARGIN_Y = (A4_H - ROWS * SLOT_PX) // 2
 
-BASE  = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
-ENG   = os.path.join(BASE, '0b7e3a42-45493.jpg')
-ZHO1  = os.path.join(BASE, '84403272-45492.jpg')
-ZHO2  = os.path.join(BASE, 'e5ce541e-45491.jpg')
+BASE1 = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
+BASE2 = '/root/.claude/uploads/22097788-396a-4cb3-801d-b4c10d483403'
+
+ENG_GREEN  = os.path.join(BASE1, '0b7e3a42-45493.jpg')   # English green original
+ZHO_BEIGE  = os.path.join(BASE1, '84403272-45492.jpg')   # Chinese beige original
+ZHO_GOLD   = os.path.join(BASE1, 'e5ce541e-45491.jpg')   # Chinese gold original
+ZHO_BLUE   = os.path.join(BASE2, 'c8bfde1b-45527.jpg')   # Chinese blue (new)
+ENG_PINK   = os.path.join(BASE2, '7c45659f-45528.jpg')   # English pink (new)
+
 OUT_DIR = '/home/user/photo-hymn-video/output'
 
-PURPLE = (185, 165, 205)   # Morandi muted purple / 莫蘭迪霧紫
+PURPLE = (185, 165, 205)   # Morandi muted purple
 
-# 4 badge configs: (source_path, tint_color or None)
-# None = keep original colours as-is
+# 6 badge configs: (source_path, tint or None)
+# None = use original image as-is
+# Layout: row-major, left col = English, right col = Chinese
 BADGE_CONFIGS = [
-    (ENG,  None),    # row0 left  – English original
-    (ZHO1, None),    # row0 right – Chinese beige original
-    (ZHO2, None),    # row1 left  – Chinese gold original
-    (ZHO1, PURPLE),  # row1 right – Chinese purple variant
+    (ENG_GREEN, None),    # row0 left  – English green (original)
+    (ZHO_BEIGE, None),    # row0 right – Chinese beige (original)
+    (ENG_PINK,  None),    # row1 left  – English pink (original)
+    (ZHO_GOLD,  None),    # row1 right – Chinese gold (original)
+    (ENG_GREEN, PURPLE),  # row2 left  – English purple (recoloured)
+    (ZHO_BLUE,  None),    # row2 right – Chinese blue (original)
+]
+LABELS = [
+    'EN-green', 'ZH-beige', 'EN-pink', 'ZH-gold', 'EN-purple', 'ZH-blue'
 ]
 
 
@@ -48,7 +61,7 @@ def crop_to_square(img):
 
 
 def recolor(img_pil, tint):
-    """Grayscale + colorize: preserves fabric texture, swaps colour to tint."""
+    """Grayscale + colorize: preserves fabric texture, applies new colour tint."""
     gray = ImageOps.autocontrast(img_pil.convert('L'))
     return ImageOps.colorize(gray, black=tint, white=(255, 255, 255))
 
@@ -84,14 +97,14 @@ def build_layout(badges, out_dir, basename):
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    labels = ['EN-original', 'ZH-beige-original', 'ZH-gold-original', 'ZH-purple']
 
     print('Processing badges ...')
     badges = []
     for i, (path, tint) in enumerate(BADGE_CONFIGS):
-        print(f'  [{i+1}/4] {labels[i]}' + (f'  tint={tint}' if tint else '  (original)'))
+        note = f'tint={tint}' if tint else 'original'
+        print(f'  [{i+1}/6] {LABELS[i]}  ({note})')
         badge = make_badge(path, tint)
-        badge.save(os.path.join(OUT_DIR, f'badge_{i+1}_{labels[i]}.png'))
+        badge.save(os.path.join(OUT_DIR, f'badge_{i+1}_{LABELS[i]}.png'))
         badges.append(badge)
 
     print('\nBuilding A4 layout ...')
