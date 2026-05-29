@@ -2,9 +2,8 @@
 """
 Badge layout: 6 badges, A4 portrait 300dpi.
 2 cols x 3 rows. Slot = 8 cm. Logo = 5.6 cm.
-Left col = English (雲嘉眾召會, 3 colours).
-Right col = Chinese (雲嘉眾召會, 3 colours).
-Original images used as-is for row 0; Morandi tints applied for rows 1-2.
+ALL logos = 雲嘉眾召會 (EN + ZH).
+Colours matched to user-approved reference layout.
 """
 
 from PIL import Image, ImageOps
@@ -26,28 +25,29 @@ SLOT_PX = round(SLOT_CM * CM)   # 945 px
 MARGIN_X = (A4_W - COLS * SLOT_PX) // 2
 MARGIN_Y = (A4_H - ROWS * SLOT_PX) // 2
 
-BASE     = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
-ENG_SRC  = os.path.join(BASE, '0b7e3a42-45493.jpg')   # English green (original)
-ZHO_SRC  = os.path.join(BASE, 'e5ce541e-45491.jpg')   # Chinese coffee/gold (original)
+BASE    = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
+ENG_SRC  = os.path.join(BASE, '0b7e3a42-45493.jpg')   # EN 雲嘉眾召會 (green)
+ZHO_BEIGE = os.path.join(BASE, '84403272-45492.jpg')  # ZH 雲嘉眾召會 (beige)
+ZHO_GOLD  = os.path.join(BASE, 'e5ce541e-45491.jpg')  # ZH 雲嘉眾召會 (coffee/gold)
 OUT_DIR  = '/home/user/photo-hymn-video/output'
 
-# Morandi tints for colour variants
-PINK   = (225, 175, 165)   # 珊瑚粉
-PURPLE = (185, 165, 205)   # 霧紫
-BLUE   = (155, 175, 200)   # 霧藍
-SAGE   = (175, 198, 162)   # 鼠尾草綠
+# Tint colours — sampled / chosen to match the approved reference layout
+CORAL  = (231, 149, 145)   # sampled from the pink Chiayi image
+BLUE   = (110, 139, 169)   # sampled from the blue Chiayi image
+PURPLE = (185, 165, 205)   # Morandi purple (was used in row2 left)
 
 # 6 badge configs: (source, tint or None)
-# None = keep original; tint = grayscale + colorize with this colour
+# None = original image as-is
+# Layout: row-major, left col = English, right col = Chinese
 BADGE_CONFIGS = [
-    (ENG_SRC, None),    # row0 left  – English original green
-    (ZHO_SRC, None),    # row0 right – Chinese original coffee
-    (ENG_SRC, PINK),    # row1 left  – English pink
-    (ZHO_SRC, BLUE),    # row1 right – Chinese blue
-    (ENG_SRC, PURPLE),  # row2 left  – English purple
-    (ZHO_SRC, SAGE),    # row2 right – Chinese sage
+    (ENG_SRC,   None),    # row0 left  – EN green (original)
+    (ZHO_BEIGE, None),    # row0 right – ZH beige (original)
+    (ENG_SRC,   CORAL),   # row1 left  – EN coral/pink
+    (ZHO_GOLD,  None),    # row1 right – ZH coffee/gold (original)
+    (ENG_SRC,   PURPLE),  # row2 left  – EN purple/lavender
+    (ZHO_GOLD,  BLUE),    # row2 right – ZH steel blue
 ]
-LABELS = ['EN-green', 'ZH-coffee', 'EN-pink', 'ZH-blue', 'EN-purple', 'ZH-sage']
+LABELS = ['EN-green', 'ZH-beige', 'EN-coral', 'ZH-gold', 'EN-purple', 'ZH-blue']
 
 
 def crop_to_square(img):
