@@ -2,8 +2,9 @@
 """
 Badge layout: 6 badges, A4 portrait 300dpi.
 2 cols x 3 rows. Slot = 8 cm. Logo = 5.6 cm.
-Left col = English (3), Right col = Chinese (3).
-5 original images + 1 purple recolour.
+Left col = English (雲嘉眾召會, 3 colours).
+Right col = Chinese (雲嘉眾召會, 3 colours).
+Original images used as-is for row 0; Morandi tints applied for rows 1-2.
 """
 
 from PIL import Image, ImageOps
@@ -25,33 +26,28 @@ SLOT_PX = round(SLOT_CM * CM)   # 945 px
 MARGIN_X = (A4_W - COLS * SLOT_PX) // 2
 MARGIN_Y = (A4_H - ROWS * SLOT_PX) // 2
 
-BASE1 = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
-BASE2 = '/root/.claude/uploads/22097788-396a-4cb3-801d-b4c10d483403'
+BASE     = '/root/.claude/uploads/cd45970f-517c-49d9-88c1-163d42b92796'
+ENG_SRC  = os.path.join(BASE, '0b7e3a42-45493.jpg')   # English green (original)
+ZHO_SRC  = os.path.join(BASE, 'e5ce541e-45491.jpg')   # Chinese coffee/gold (original)
+OUT_DIR  = '/home/user/photo-hymn-video/output'
 
-ENG_GREEN  = os.path.join(BASE1, '0b7e3a42-45493.jpg')   # English green original
-ZHO_BEIGE  = os.path.join(BASE1, '84403272-45492.jpg')   # Chinese beige original
-ZHO_GOLD   = os.path.join(BASE1, 'e5ce541e-45491.jpg')   # Chinese gold original
-ZHO_BLUE   = os.path.join(BASE2, 'c8bfde1b-45527.jpg')   # Chinese blue (new)
-ENG_PINK   = os.path.join(BASE2, '7c45659f-45528.jpg')   # English pink (new)
+# Morandi tints for colour variants
+PINK   = (225, 175, 165)   # 珊瑚粉
+PURPLE = (185, 165, 205)   # 霧紫
+BLUE   = (155, 175, 200)   # 霧藍
+SAGE   = (175, 198, 162)   # 鼠尾草綠
 
-OUT_DIR = '/home/user/photo-hymn-video/output'
-
-PURPLE = (185, 165, 205)   # Morandi muted purple
-
-# 6 badge configs: (source_path, tint or None)
-# None = use original image as-is
-# Layout: row-major, left col = English, right col = Chinese
+# 6 badge configs: (source, tint or None)
+# None = keep original; tint = grayscale + colorize with this colour
 BADGE_CONFIGS = [
-    (ENG_GREEN, None),    # row0 left  – English green (original)
-    (ZHO_BEIGE, None),    # row0 right – Chinese beige (original)
-    (ENG_PINK,  None),    # row1 left  – English pink (original)
-    (ZHO_GOLD,  None),    # row1 right – Chinese gold (original)
-    (ENG_GREEN, PURPLE),  # row2 left  – English purple (recoloured)
-    (ZHO_BLUE,  None),    # row2 right – Chinese blue (original)
+    (ENG_SRC, None),    # row0 left  – English original green
+    (ZHO_SRC, None),    # row0 right – Chinese original coffee
+    (ENG_SRC, PINK),    # row1 left  – English pink
+    (ZHO_SRC, BLUE),    # row1 right – Chinese blue
+    (ENG_SRC, PURPLE),  # row2 left  – English purple
+    (ZHO_SRC, SAGE),    # row2 right – Chinese sage
 ]
-LABELS = [
-    'EN-green', 'ZH-beige', 'EN-pink', 'ZH-gold', 'EN-purple', 'ZH-blue'
-]
+LABELS = ['EN-green', 'ZH-coffee', 'EN-pink', 'ZH-blue', 'EN-purple', 'ZH-sage']
 
 
 def crop_to_square(img):
@@ -61,7 +57,7 @@ def crop_to_square(img):
 
 
 def recolor(img_pil, tint):
-    """Grayscale + colorize: preserves fabric texture, applies new colour tint."""
+    """Grayscale + autocontrast + colorize — preserves fabric texture."""
     gray = ImageOps.autocontrast(img_pil.convert('L'))
     return ImageOps.colorize(gray, black=tint, white=(255, 255, 255))
 
