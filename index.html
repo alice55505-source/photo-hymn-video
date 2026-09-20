@@ -1259,7 +1259,7 @@ function updateSummary() {
     lines.push(`📷 素材：${parts.join(' + ')}（約 ${totalDur} 秒）`);
     if (withText > 0) lines.push(`✍️ 有文字：${withText} 個`);
     const withAudio = photos.filter(p => p.audioUrl).length;
-    if (withAudio > 0) lines.push(`🎤 有語音：${withAudio} 個（播放時背景音樂會自動降低音量）`);
+    if (withAudio > 0) lines.push(`🎤 有語音：${withAudio} 個（背景音樂音量固定，不會被語音蓋過）`);
     if (vidCount > 0)  lines.push(`🔇 影片段落音樂會自動降低音量`);
   }
   if (selectedMusic) lines.push(`🎵 音樂：${selectedMusic.name.replace(/\.[a-z0-9]+$/i,'')}`);
@@ -1380,17 +1380,17 @@ async function makeVideoLocally() {
       const clipStartSec = tsUs / 1_000_000;
       if (p.type === 'video') {
         tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
-        clipAudioRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl, includeAudio: p.includeAudio !== false, trimStart: p.trimStart || 0 });
+        clipAudioRanges.push({ kind: 'video', startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl, includeAudio: p.includeAudio !== false, trimStart: p.trimStart || 0 });
       } else if (p.type === 'collage') {
         tsUs = await encodeCollage(p, ctx, canvas, videoEncoder, W, H, tsUs);
-        if (p.audioUrl) clipAudioRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.audioUrl, includeAudio: true, trimStart: 0 });
+        if (p.audioUrl) clipAudioRanges.push({ kind: 'narration', startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.audioUrl, includeAudio: true, trimStart: 0 });
       } else {
         const bmp = await loadBitmap(p.dataUrl);
         const sharpBmp = await sharpenBitmap(bmp);
         bmp.close();
         tsUs = await encodeKenBurns(p, sharpBmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
         sharpBmp.close();
-        if (p.audioUrl) clipAudioRanges.push({ startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.audioUrl, includeAudio: true, trimStart: 0 });
+        if (p.audioUrl) clipAudioRanges.push({ kind: 'narration', startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.audioUrl, includeAudio: true, trimStart: 0 });
       }
     }
 
@@ -1890,11 +1890,13 @@ function trimLeadingSilence(buffer, maxLeadSec = 1.0) {
   };
 }
 
-// 從 AudioBuffer 裁切並循環填充，末尾套漸出（fade out）
+// 從 AudioBuffer 裁切並循環填充，開頭/結尾套漸入漸出（fade in/out）
 function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeOutFrames = 0, clipAudioBuffers = []) {
-  const DUCK       = 0.15;  // 影片段落／照片語音時背景音樂降至 15%
-  const RAMP       = 0.3;   // 漸變時間（秒）
-  const RAMP_F     = Math.round(RAMP * 44100);
+  const BG_LEVEL   = 0.45;  // 背景音樂固定音量（全程一致，比語音小聲，避免蓋過說話聲、也避免混音時爆音）
+  const DUCK       = 0.15;  // 影片段落原聲時，背景音樂再降到 BG_LEVEL 的 15%（不含照片語音）
+  const RAMP       = 0.3;   // 影片段落降低音量的漸變時間（秒）
+  const CLIP_FADE  = 0.02;  // 語音／影片原聲片段開頭結尾各漸入漸出 20ms，避免剪接處爆音
+  const fadeInFrames = Math.round(1.5 * 44100); // 開頭漸入 1.5 秒
   const numCh  = decoded.numberOfChannels;
   const srcLen = decoded.length;
   const out    = new Float32Array(2 * numFrames);
@@ -1905,22 +1907,26 @@ function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeO
       const globalFrame = offsetFrames + i;
       const globalSec   = globalFrame / 44100;
 
-      // 計算背景音樂 gain（影片段落／照片語音時降低，附漸變）
-      let musicGain = 1.0;
+      // 背景音樂固定音量，只有「影片原聲」段落會再降低（照片語音不影響背景音樂音量）
+      let musicGain = BG_LEVEL;
       for (const vr of clipAudioBuffers) {
-        if (!vr.includeAudio) continue; // 不保留聲音時背景音樂不降低
+        if (vr.kind !== 'video' || !vr.includeAudio) continue;
+        const duckLevel    = BG_LEVEL * DUCK;
         const rampInStart  = vr.startSec - RAMP;
         const rampOutEnd   = vr.endSec   + RAMP;
         if (globalSec >= vr.startSec && globalSec < vr.endSec) {
-          musicGain = DUCK; break;
+          musicGain = duckLevel; break;
         } else if (globalSec >= rampInStart && globalSec < vr.startSec) {
           const t = (globalSec - rampInStart) / RAMP;
-          musicGain = 1.0 - (1.0 - DUCK) * t; break;
+          musicGain = BG_LEVEL - (BG_LEVEL - duckLevel) * t; break;
         } else if (globalSec >= vr.endSec && globalSec < rampOutEnd) {
           const t = (globalSec - vr.endSec) / RAMP;
-          musicGain = DUCK + (1.0 - DUCK) * t; break;
+          musicGain = duckLevel + (BG_LEVEL - duckLevel) * t; break;
         }
       }
+
+      // 開頭漸入
+      if (globalFrame < fadeInFrames) musicGain *= globalFrame / fadeInFrames;
 
       // 尾部淡出
       if (fadeOutFrames > 0 && totalFrames > 0) {
@@ -1931,13 +1937,15 @@ function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeO
 
       let sample = src[globalFrame % srcLen] * musicGain;
 
-      // 混入影片原聲／照片語音
+      // 混入影片原聲／照片語音：片段開頭結尾各做極短漸入漸出，避免兩張照片交接處出現爆音
       for (const vr of clipAudioBuffers) {
         if (!vr.decoded || !vr.includeAudio || globalSec < vr.startSec || globalSec >= vr.endSec) continue;
         const clipFrame = Math.floor((globalSec - vr.startSec + (vr.trimStart || 0)) * 44100);
         const ch = Math.min(c, vr.decoded.numberOfChannels - 1);
         const clipSrc = vr.decoded.getChannelData(ch);
-        if (clipFrame < clipSrc.length) sample += clipSrc[clipFrame];
+        if (clipFrame >= clipSrc.length) continue;
+        const env = Math.min(1, (globalSec - vr.startSec) / CLIP_FADE, (vr.endSec - globalSec) / CLIP_FADE);
+        sample += clipSrc[clipFrame] * env;
       }
 
       out[c * numFrames + i] = Math.max(-1, Math.min(1, sample));
