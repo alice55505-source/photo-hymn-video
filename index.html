@@ -1280,6 +1280,7 @@ function updateSummary() {
     lines.push(`🎞️ 片尾：${parts.join(' + ')}`);
   }
   s.innerHTML = lines.join('<br>') || '（請先完成步驟 1 和 2）';
+  scheduleAutosave();
 }
 
 function checkReady() {
@@ -2128,10 +2129,225 @@ function compressImage(dataUrl) {
   });
 }
 
+// ── 自動儲存草稿（IndexedDB，含照片/影片/語音的實際檔案內容）──
+// 避免使用者不小心下拉重整或誤觸上一頁，導致整個作品必須重做。
+const DRAFT_DB_NAME = 'photoHymnVideoDraft';
+const DRAFT_STORE   = 'draft';
+const DRAFT_KEY     = 'current';
+let draftDBPromise  = null;
+let draftReady      = false; // 頁面剛載入、確認過是否有舊草稿之前，先不要自動儲存（否則會把舊草稿洗掉）
+let autosaveTimer   = null;
+let autosaveBusy    = false;
+let autosavePending = false;
+
+function openDraftDB() {
+  if (draftDBPromise) return draftDBPromise;
+  draftDBPromise = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) { reject(new Error('no indexedDB')); return; }
+    let req;
+    try { req = indexedDB.open(DRAFT_DB_NAME, 1); } catch (e) { reject(e); return; }
+    req.onupgradeneeded = () => { req.result.createObjectStore(DRAFT_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return draftDBPromise;
+}
+async function idbPut(key, value) {
+  const db = await openDraftDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readwrite');
+    tx.objectStore(DRAFT_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(key) {
+  const db = await openDraftDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readonly');
+    const req = tx.objectStore(DRAFT_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDelete(key) {
+  const db = await openDraftDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readwrite');
+    tx.objectStore(DRAFT_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function blobUrlToBlob(url) {
+  try { const res = await fetch(url); return await res.blob(); } catch { return null; }
+}
+
+function scheduleAutosave() {
+  if (!draftReady) return; // 還沒確認過舊草稿之前，不要覆蓋掉它
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(saveDraftNow, 800);
+}
+
+async function saveDraftNow() {
+  if (autosaveBusy) { autosavePending = true; return; }
+  autosaveBusy = true;
+  try {
+    if (photos.length === 0) {
+      await idbDelete(DRAFT_KEY);
+      return;
+    }
+    const photoRecords = [];
+    for (const p of photos) {
+      const rec = { type: p.type || 'photo', text: p.text || '', duration: p.duration || 4, name: p.name || '' };
+      if (p.audioUrl) {
+        rec.audioBlob = await blobUrlToBlob(p.audioUrl);
+        rec.audioDuration = p.audioDuration || 0;
+        rec.audioName = p.audioName || '';
+      }
+      if (p.type === 'collage') {
+        rec.splitRatio = p.splitRatio;
+        rec.items = [];
+        for (const it of p.items) {
+          rec.items.push({
+            name: it.name, blob: await blobUrlToBlob(it.dataUrl),
+            cropY: it.cropY, focusX: it.focusX, focusY: it.focusY, fitMode: it.fitMode
+          });
+        }
+      } else {
+        rec.blob = await blobUrlToBlob(p.dataUrl);
+        if (p.type === 'video') {
+          rec.mimeType = p.mimeType; rec.includeAudio = p.includeAudio; rec.trimStart = p.trimStart || 0;
+        } else {
+          rec.cropY = p.cropY;
+        }
+      }
+      photoRecords.push(rec);
+    }
+
+    let musicRecord = null;
+    if (selectedMusic) {
+      musicRecord = selectedMusic.isUpload
+        ? { isUpload: true, name: selectedMusic.name, blob: await blobUrlToBlob(selectedMusic.url) }
+        : { isUpload: false, name: selectedMusic.name, url: selectedMusic.url };
+    }
+
+    await idbPut(DRAFT_KEY, {
+      version: 1, savedAt: Date.now(),
+      photos: photoRecords, music: musicRecord,
+      introTitle: document.getElementById('intro-title')?.value || '',
+      outroTitle: document.getElementById('outro-title')?.value || '',
+      introPhotoData, outroPhotoData
+    });
+  } catch (e) {
+    console.warn('自動儲存草稿失敗', e);
+  } finally {
+    autosaveBusy = false;
+    if (autosavePending) { autosavePending = false; saveDraftNow(); }
+  }
+}
+
+async function clearDraft() {
+  clearTimeout(autosaveTimer);
+  try { await idbDelete(DRAFT_KEY); } catch {}
+}
+
+async function checkForDraft() {
+  let draft = null;
+  try { draft = await idbGet(DRAFT_KEY); } catch {}
+  if (draft && draft.photos && draft.photos.length > 0) showDraftBanner(draft);
+  draftReady = true; // 之後的任何變動才開始自動儲存
+}
+
+function showDraftBanner(draft) {
+  const bar = document.createElement('div');
+  bar.id = 'draft-banner';
+  const when = new Date(draft.savedAt).toLocaleString('zh-TW');
+  bar.style.cssText = 'max-width:900px;margin:0 auto 20px;padding:16px 20px;background:#fff8e6;border:2px solid #e6b800;border-radius:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;';
+  bar.innerHTML = `
+    <div style="font-size:1.05rem;color:#7a5c00;">💾 偵測到尚未完成的草稿（${draft.photos.length} 個素材，${when}）</div>
+    <div style="display:flex;gap:10px;">
+      <button id="draft-restore-btn" style="padding:9px 18px;border:none;border-radius:10px;background:#e6b800;color:#fff;font-weight:700;cursor:pointer;">繼續編輯</button>
+      <button id="draft-discard-btn" style="padding:9px 18px;border:2px solid #c9a400;border-radius:10px;background:#fff;color:#7a5c00;cursor:pointer;">不用了，清除</button>
+    </div>
+  `;
+  document.querySelector('.steps').before(bar);
+  document.getElementById('draft-restore-btn').addEventListener('click', async () => {
+    await restoreDraft(draft);
+    bar.remove();
+  });
+  document.getElementById('draft-discard-btn').addEventListener('click', async () => {
+    await clearDraft();
+    bar.remove();
+  });
+}
+
+async function restoreDraft(draft) {
+  photos.length = 0;
+  for (const rec of draft.photos) {
+    let p;
+    if (rec.type === 'collage') {
+      const items = (rec.items || []).map(it => ({
+        name: it.name, dataUrl: it.blob ? URL.createObjectURL(it.blob) : '', file: null,
+        cropY: it.cropY, focusX: it.focusX, focusY: it.focusY, fitMode: it.fitMode
+      }));
+      p = { type: 'collage', items, text: rec.text, duration: rec.duration, name: rec.name, splitRatio: rec.splitRatio };
+    } else {
+      p = { type: rec.type, dataUrl: rec.blob ? URL.createObjectURL(rec.blob) : '', file: null,
+        name: rec.name, text: rec.text, duration: rec.duration };
+      if (rec.type === 'video') { p.mimeType = rec.mimeType; p.includeAudio = rec.includeAudio; p.trimStart = rec.trimStart || 0; }
+      else { p.cropY = rec.cropY; }
+    }
+    if (rec.audioBlob) { p.audioUrl = URL.createObjectURL(rec.audioBlob); p.audioDuration = rec.audioDuration; p.audioName = rec.audioName; }
+    photos.push(p);
+  }
+
+  if (draft.introTitle) document.getElementById('intro-title').value = draft.introTitle;
+  if (draft.outroTitle) document.getElementById('outro-title').value = draft.outroTitle;
+  if (draft.introPhotoData) {
+    introPhotoData = draft.introPhotoData;
+    document.getElementById('intro-photo-preview').src = 'data:image/jpeg;base64,' + introPhotoData;
+    document.getElementById('intro-photo-preview').style.display = 'block';
+    document.getElementById('intro-photo-placeholder').style.display = 'none';
+    document.getElementById('intro-photo-clear').style.display = 'block';
+  }
+  if (draft.outroPhotoData) {
+    outroPhotoData = draft.outroPhotoData;
+    document.getElementById('outro-photo-preview').src = 'data:image/jpeg;base64,' + outroPhotoData;
+    document.getElementById('outro-photo-preview').style.display = 'block';
+    document.getElementById('outro-photo-placeholder').style.display = 'none';
+    document.getElementById('outro-photo-clear').style.display = 'block';
+  }
+  if (draft.music) {
+    if (draft.music.isUpload && draft.music.blob) {
+      uploadedMusic = { name: draft.music.name, url: URL.createObjectURL(draft.music.blob) };
+      renderMusicUploadRow();
+      selectUploadedMusic();
+    } else if (!draft.music.isUpload) {
+      selectedMusic = { name: draft.music.name, url: draft.music.url };
+    }
+  }
+
+  renderPhotoList();
+  updateSummary();
+  checkReady();
+  renderMusicGrid();
+}
+
+// 不小心下拉重整／滑掉分頁時，跳原生確認視窗擋一下
+window.addEventListener('beforeunload', e => {
+  if (photos.length > 0) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
 // 初始化
 loadMusicList();
 renderMusicUploadRow();
 updateSummary();
+checkForDraft();
 
 // ── PWA ───────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
