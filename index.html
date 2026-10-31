@@ -1457,12 +1457,19 @@ async function makeVideoLocally() {
     const AAC_FRAME_US = Math.round(1024 / 44100 * 1_000_000);
     const AAC_ASC = new Uint8Array([0x12, 0x10]); // AAC-LC, 44.1kHz, stereo
     let audioMetaSent = false;
+    const adiag = { n: 0, first: null, desc: 'none', peak: 0 }; // 診斷用
     let audioTs0 = null, audioLastTs = 0; // iOS 第一個 chunk 的 timestamp 可能不是 0（含 priming），自行歸零
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => {
         try {
           let data = new Uint8Array(chunk.byteLength);
           chunk.copyTo(data);
+          adiag.n++;
+          if (!adiag.first) {
+            const dd = meta?.decoderConfig?.description;
+            adiag.desc = dd ? Array.from(new Uint8Array(dd.buffer || dd, dd.byteOffset || 0, dd.byteLength)).map(x => x.toString(16).padStart(2, '0')).join('') : 'none';
+            adiag.first = `len${data.length} h${Array.from(data.subarray(0, 2)).map(x => x.toString(16).padStart(2, '0')).join('')} d${chunk.duration} t${chunk.timestamp} ${chunk.type}`;
+          }
           if (data.length > 9 && data[0] === 0xFF && (data[1] & 0xF6) === 0xF0) {
             data = data.subarray((data[1] & 0x01) ? 7 : 9); // 去掉 ADTS 標頭
           }
@@ -1504,10 +1511,12 @@ async function makeVideoLocally() {
     let aTs = 0;
     for (let off = 0; off < totalFrames; off += CHUNK) {
       const n  = Math.min(CHUNK, totalFrames - off);
+      const pcm = buildAudioData(decoded, off, n, totalFrames, fadeOutFrames, clipAudioBuffers);
+      if (off % (CHUNK * 50) === 0) for (let k = 0; k < pcm.length; k += 7) { const v = Math.abs(pcm[k]); if (v > adiag.peak) adiag.peak = v; }
       const ad = new AudioData({
         format: 'f32-planar', sampleRate: 44100,
         numberOfFrames: n, numberOfChannels: 2,
-        timestamp: aTs, data: buildAudioData(decoded, off, n, totalFrames, fadeOutFrames, clipAudioBuffers)
+        timestamp: aTs, data: pcm
       });
       audioEncoder.encode(ad);
       ad.close();
@@ -1529,6 +1538,9 @@ async function makeVideoLocally() {
     } else {
       setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
     }
+    const st = document.getElementById('status-box');
+    st.textContent += `\n［診斷・本機］音樂${decoded.duration.toFixed(0)}s/${decoded.sampleRate}/${decoded.numberOfChannels}ch 峰值${adiag.peak.toFixed(2)}｜編碼${adiag.n}段 ${adiag.first}｜desc ${adiag.desc}｜${(navigator.userAgent.match(/OS [\d_]+/) || [''])[0]}`;
+    st.style.whiteSpace = 'pre-line';
     dlLink.href     = URL.createObjectURL(blob);
     dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
@@ -2160,7 +2172,7 @@ async function makeVideoRemote() {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const blob = new Blob([bytes], { type: 'video/mp4' });
     const mb   = (blob.size / 1024 / 1024).toFixed(1);
-    setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+    setStatus('success', `🎉 影片製作完成！大小：${mb} MB（［診斷・伺服器］）`);
     dlLink.href = URL.createObjectURL(blob);
     dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
