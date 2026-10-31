@@ -1488,8 +1488,11 @@ async function makeVideoLocally() {
     const blob = new Blob([target.buffer], { type: 'video/mp4' });
     const mb   = (blob.size / 1024 / 1024).toFixed(1);
     setProgress(100);
-    setStatus('success', `🎉 影片製作完成！大小：${mb} MB` +
-      (skipped.length ? `。⚠️ 以下 ${skipped.length} 張照片讀取失敗已略過（可能已被手機清除，請刪掉後重新選取）：${skipped.join('、')}` : ''));
+    if (skipped.length) {
+      setStatus('error', `⚠️ 影片已產生（${mb} MB），但有 ${skipped.length} 張照片讀取失敗被略過，影片內容不完整。請把這些照片刪掉（✕）後重新選取，再製作一次。略過的照片：${skipped.join('、')}`);
+    } else {
+      setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+    }
     dlLink.href     = URL.createObjectURL(blob);
     dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
@@ -2247,8 +2250,65 @@ async function idbDelete(key) {
   });
 }
 
+// 媒體檔另外存成獨立的 key，內容用 ArrayBuffer（不存 Blob）。
+// 原因：iOS Safari 的 IndexedDB Blob 是指向磁碟檔案，草稿記錄一被覆寫，舊檔就被刪，
+// 已經用 createObjectURL 拿去用的照片會全部變成讀不到 → 合成時照片全被略過、只剩片頭。
+// 每個檔案只存一次（url → key 快取），不再每次編輯都整批重寫。
+const savedMedia = new Map(); // blob url → media key
+let mediaSeq = 0;
 async function blobUrlToBlob(url) {
-  try { const res = await fetch(url); return await res.blob(); } catch { return null; }
+  if (!url) return null;
+  if (savedMedia.has(url)) return savedMedia.get(url);
+  try {
+    const blob = await (await fetch(url)).blob();
+    const key = 'media_' + Date.now() + '_' + (mediaSeq++);
+    await idbPut(key, { type: blob.type, data: await blob.arrayBuffer() });
+    savedMedia.set(url, key);
+    return key;
+  } catch { return null; }
+}
+// 讀回媒體：一律轉成記憶體內的 Blob，跟 IndexedDB 的檔案脫鉤
+async function loadDraftMedia(ref) {
+  try {
+    if (!ref) return null;
+    let blob;
+    if (typeof ref === 'string') {
+      const m = await idbGet(ref);
+      if (!m || !m.data) return null;
+      blob = new Blob([m.data], { type: m.type || '' });
+    } else {
+      blob = new Blob([await ref.arrayBuffer()], { type: ref.type || '' }); // 舊版草稿直接存 Blob
+    }
+    const url = URL.createObjectURL(blob);
+    if (typeof ref === 'string') savedMedia.set(url, ref);
+    return url;
+  } catch { return null; }
+}
+async function idbKeys() {
+  const db = await openDraftDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(DRAFT_STORE, 'readonly').objectStore(DRAFT_STORE).getAllKeys();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbClearAll() {
+  const db = await openDraftDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readwrite');
+    tx.objectStore(DRAFT_STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+// 刪掉已經沒有被草稿引用的媒體
+async function pruneDraftMedia(record) {
+  const used = new Set();
+  JSON.stringify(record, (k, v) => { if (typeof v === 'string' && v.startsWith('media_')) used.add(v); return v; });
+  for (const k of await idbKeys()) {
+    if (typeof k === 'string' && k.startsWith('media_') && !used.has(k)) await idbDelete(k);
+  }
+  for (const [url, key] of savedMedia) if (!used.has(key)) savedMedia.delete(url);
 }
 
 function scheduleAutosave() {
@@ -2262,7 +2322,8 @@ async function saveDraftNow() {
   autosaveBusy = true;
   try {
     if (photos.length === 0) {
-      await idbDelete(DRAFT_KEY);
+      await idbClearAll();
+      savedMedia.clear();
       return;
     }
     const photoRecords = [];
@@ -2300,13 +2361,15 @@ async function saveDraftNow() {
         : { isUpload: false, name: selectedMusic.name, url: selectedMusic.url };
     }
 
-    await idbPut(DRAFT_KEY, {
-      version: 1, savedAt: Date.now(),
+    const record = {
+      version: 2, savedAt: Date.now(),
       photos: photoRecords, music: musicRecord,
       introTitle: document.getElementById('intro-title')?.value || '',
       outroTitle: document.getElementById('outro-title')?.value || '',
       introPhotoData, outroPhotoData
-    });
+    };
+    await idbPut(DRAFT_KEY, record);
+    await pruneDraftMedia(record);
   } catch (e) {
     console.warn('自動儲存草稿失敗', e);
   } finally {
@@ -2317,7 +2380,8 @@ async function saveDraftNow() {
 
 async function clearDraft() {
   clearTimeout(autosaveTimer);
-  try { await idbDelete(DRAFT_KEY); } catch {}
+  try { await idbClearAll(); } catch {}
+  savedMedia.clear();
 }
 
 async function checkForDraft() {
@@ -2352,23 +2416,31 @@ function showDraftBanner(draft) {
 
 async function restoreDraft(draft) {
   photos.length = 0;
+  let lost = 0;
   for (const rec of draft.photos) {
     let p;
     if (rec.type === 'collage') {
-      const items = (rec.items || []).map(it => ({
-        name: it.name, dataUrl: it.blob ? URL.createObjectURL(it.blob) : '', file: null,
-        cropY: it.cropY, focusX: it.focusX, focusY: it.focusY, fitMode: it.fitMode
-      }));
+      const items = [];
+      for (const it of (rec.items || [])) {
+        items.push({
+          name: it.name, dataUrl: (await loadDraftMedia(it.blob)) || '', file: null,
+          cropY: it.cropY, focusX: it.focusX, focusY: it.focusY, fitMode: it.fitMode
+        });
+      }
       p = { type: 'collage', items, text: rec.text, duration: rec.duration, name: rec.name, splitRatio: rec.splitRatio };
     } else {
-      p = { type: rec.type, dataUrl: rec.blob ? URL.createObjectURL(rec.blob) : '', file: null,
+      p = { type: rec.type, dataUrl: (await loadDraftMedia(rec.blob)) || '', file: null,
         name: rec.name, text: rec.text, duration: rec.duration };
       if (rec.type === 'video') { p.mimeType = rec.mimeType; p.includeAudio = rec.includeAudio; p.trimStart = rec.trimStart || 0; }
       else { p.cropY = rec.cropY; }
     }
-    if (rec.audioBlob) { p.audioUrl = URL.createObjectURL(rec.audioBlob); p.audioDuration = rec.audioDuration; p.audioName = rec.audioName; }
-    photos.push(p);
+    const audioUrl = await loadDraftMedia(rec.audioBlob);
+    if (audioUrl) { p.audioUrl = audioUrl; p.audioDuration = rec.audioDuration; p.audioName = rec.audioName; }
+    if (p.type === 'collage') p.items = p.items.filter(it => it.dataUrl);
+    const ok = p.type === 'collage' ? p.items.length > 0 : !!p.dataUrl;
+    if (ok) photos.push(p); else lost++;
   }
+  if (lost) alert(`草稿中有 ${lost} 個素材已無法讀取，請重新選取這些照片／影片`);
 
   if (draft.introTitle) document.getElementById('intro-title').value = draft.introTitle;
   if (draft.outroTitle) document.getElementById('outro-title').value = draft.outroTitle;
@@ -2387,8 +2459,9 @@ async function restoreDraft(draft) {
     document.getElementById('outro-photo-clear').style.display = 'block';
   }
   if (draft.music) {
-    if (draft.music.isUpload && draft.music.blob) {
-      uploadedMusic = { name: draft.music.name, url: URL.createObjectURL(draft.music.blob) };
+    const musicUrl = draft.music.isUpload ? await loadDraftMedia(draft.music.blob) : null;
+    if (draft.music.isUpload && musicUrl) {
+      uploadedMusic = { name: draft.music.name, url: musicUrl };
       renderMusicUploadRow();
       selectUploadedMusic();
     } else if (!draft.music.isUpload) {
