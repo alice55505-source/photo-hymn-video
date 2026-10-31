@@ -1449,12 +1449,48 @@ async function makeVideoLocally() {
 
     let audioError = null;
     let audioChunkCount = 0;
+    // iOS Safari 的 AudioEncoder 輸出跟 Chrome 不同，直接丟給 muxer 會變成無聲：
+    //  1) chunk.duration 可能是 null → muxer 丟錯（在 callback 內被吞掉，整條音軌消失）
+    //  2) meta.decoderConfig.description 可能沒有 → esds 缺 AudioSpecificConfig，播放器無聲
+    //  3) 可能輸出帶 ADTS 標頭的 AAC → MP4 不能有 ADTS 標頭
+    // 所以這裡自己整理資料再交給 muxer。
+    const AAC_FRAME_US = Math.round(1024 / 44100 * 1_000_000);
+    const AAC_ASC = new Uint8Array([0x12, 0x10]); // AAC-LC, 44.1kHz, stereo
+    let audioMetaSent = false;
+    let audioTs0 = null, audioLastTs = 0; // iOS 第一個 chunk 的 timestamp 可能不是 0（含 priming），自行歸零
     const audioEncoder = new AudioEncoder({
-      output: (chunk, meta) => { audioChunkCount++; muxer.addAudioChunk(chunk, meta); },
+      output: (chunk, meta) => {
+        try {
+          let data = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(data);
+          if (data.length > 9 && data[0] === 0xFF && (data[1] & 0xF6) === 0xF0) {
+            data = data.subarray((data[1] & 0x01) ? 7 : 9); // 去掉 ADTS 標頭
+          }
+          let m;
+          if (!audioMetaSent) {
+            const d = meta?.decoderConfig?.description;
+            m = { decoderConfig: {
+              codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2,
+              description: (d && d.byteLength >= 2) ? d : AAC_ASC
+            } };
+            audioMetaSent = true;
+          }
+          const dur = Number.isFinite(chunk.duration) && chunk.duration > 0 ? chunk.duration : AAC_FRAME_US;
+          const rawTs = Number.isFinite(chunk.timestamp) ? chunk.timestamp : audioLastTs;
+          if (audioTs0 === null) audioTs0 = rawTs;
+          const ts = Math.max(audioLastTs, rawTs - audioTs0);
+          audioLastTs = ts;
+          muxer.addAudioChunkRaw(data, chunk.type || 'key', ts, dur, m);
+          audioChunkCount++;
+        } catch (err) {
+          audioError = err;
+        }
+      },
       error: e => { audioError = e; }
     });
     audioEncoder.configure({
-      codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000
+      codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000,
+      aac: { format: 'aac' }
     });
     // 等一個 microtask，讓非同步的 configure 錯誤有機會觸發 error callback
     await new Promise(r => setTimeout(r, 0));
