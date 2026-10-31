@@ -1306,7 +1306,7 @@ async function makeVideoLocally() {
 
   try {
     const { Muxer, ArrayBufferTarget } = await import('./mp4-muxer.js');
-    await document.fonts.load("bold 72px 'Iansui'").catch(() => {});
+    await withTimeout(document.fonts.load("bold 72px 'Iansui'"), 8000, 'font timeout').catch(() => {});
 
     const FPS = 24, W = 1920, H = 1080;
     const canvas = document.createElement('canvas');
@@ -1403,7 +1403,7 @@ async function makeVideoLocally() {
       tsUs = await encodeStatic(canvas, videoEncoder, 3, tsUs);
     }
 
-    await videoEncoder.flush();
+    await withTimeout(videoEncoder.flush(), 60000, 'ENCODER_STALL');
     if (encoderError) throw encoderError;
     const totalSec = tsUs / 1_000_000;
 
@@ -1475,7 +1475,7 @@ async function makeVideoLocally() {
       ad.close();
       aTs += Math.round((n / 44100) * 1_000_000);
     }
-    await audioEncoder.flush();
+    await withTimeout(audioEncoder.flush(), 60000, 'ENCODER_STALL');
     if (audioError) throw audioError;
     if (audioChunkCount === 0 && totalFrames > 0) throw new Error('AudioEncoder is not configured');
 
@@ -1493,8 +1493,8 @@ async function makeVideoLocally() {
     dlLink.click();
 
   } catch (e) {
-    if (e.message && e.message.includes('not configured')) {
-      setStatus('info', '⚠️ 本裝置不支援本地合成，改用伺服器⋯⋯');
+    if (e.message && (e.message.includes('not configured') || e.message.includes('ENCODER_STALL'))) {
+      setStatus('info', '⚠️ 本裝置合成時卡住，改用伺服器⋯⋯');
       setProgress(0);
       return makeVideoRemote();
     }
@@ -1504,6 +1504,40 @@ async function makeVideoLocally() {
   }
 }
 
+// ── 防卡住工具：iOS 的編碼器／影片 seek 偶爾完全不回應，所有等待都要有上限 ──
+function withTimeout(promise, ms, msg) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(msg)), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// 等 encoder queue 消化；超過 20 秒完全沒動靜就視為編碼器卡死
+async function waitEncoderQueue(encoder, max) {
+  let last = encoder.encodeQueueSize, t0 = Date.now();
+  while (encoder.encodeQueueSize > max) {
+    if (encoder.state === 'closed') throw new Error('ENCODER_STALL');
+    await new Promise(r => setTimeout(r, 16));
+    const q = encoder.encodeQueueSize;
+    // 有在消化，或使用者切到背景（計時器暫停），都重新計時
+    if (q < last || document.hidden) t0 = Date.now();
+    last = q;
+    if (Date.now() - t0 > 20000) throw new Error('ENCODER_STALL');
+  }
+}
+
+// seek 到指定時間；iOS 有時不觸發 seeked，最多等 3 秒就繼續（沿用目前畫面）
+function seekVideo(vid, t) {
+  return new Promise(res => {
+    let done = false;
+    const finish = () => { if (done) return; done = true; vid.removeEventListener('seeked', finish); res(); };
+    vid.addEventListener('seeked', finish);
+    setTimeout(finish, 3000);
+    try { vid.currentTime = t; } catch { finish(); }
+  });
+}
+
 // 靜態幀（片頭/片尾用）：多幀複製同一畫面，避免 iOS 編碼器對單一超長幀卡住
 async function encodeStatic(canvas, encoder, durationSec, startTs) {
   const STATIC_FPS = 6;
@@ -1511,9 +1545,7 @@ async function encodeStatic(canvas, encoder, durationSec, startTs) {
   const frameDurUs = Math.round(1_000_000 / STATIC_FPS);
   let ts = startTs;
   for (let f = 0; f < frameCount; f++) {
-    while (encoder.encodeQueueSize > 8) {
-      await new Promise(r => setTimeout(r, 16));
-    }
+    await waitEncoderQueue(encoder, 8);
     if (f % 3 === 0) await new Promise(r => setTimeout(r, 0));
     const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
     encoder.encode(frame, { keyFrame: f === 0 });
@@ -1602,7 +1634,7 @@ async function encodeCollage(p, ctx, canvas, encoder, W, H, startTs) {
     ctx.restore();
     if (p.text) drawTextOverlay(ctx, p.text, W, H);
 
-    while (encoder.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 16));
+    await waitEncoderQueue(encoder, 8);
     if (f % 4 === 0) await new Promise(r => setTimeout(r, 0));
     const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
     encoder.encode(frame, { keyFrame: f === 0 });
@@ -1655,7 +1687,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
       ctx.fillRect(0, 0, W, H);
       ctx.drawImage(bmp, 0, srcY, srcW, srcH, (W - dw) / 2, (H - dh) / 2, dw, dh);
       if (p.text) drawTextOverlay(ctx, p.text, W, H);
-      while (encoder.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 16));
+      await waitEncoderQueue(encoder, 8);
       if (f % 4 === 0) await new Promise(r => setTimeout(r, 0));
       const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
       encoder.encode(frame, { keyFrame: f === 0 });
@@ -1683,9 +1715,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
     if (p.text) drawTextOverlay(ctx, p.text, W, H);
 
     // 背壓控制：queue 太滿先等，避免 GPU 記憶體耗盡導致 encoder error
-    while (encoder.encodeQueueSize > 8) {
-      await new Promise(r => setTimeout(r, 16));
-    }
+    await waitEncoderQueue(encoder, 8);
     // 每 4 幀讓步一次，讓瀏覽器有機會更新 UI、處理觸控事件
     if (f % 4 === 0) await new Promise(r => setTimeout(r, 0));
 
@@ -1700,8 +1730,14 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
 // 影片剪輯：優先用 requestVideoFrameCallback 實時擷取，不支援則 seek
 async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   const vid = document.createElement('video');
-  vid.src = p.dataUrl;
   vid.muted = true;
+  vid.playsInline = true;
+  vid.setAttribute('playsinline', '');
+  vid.preload = 'auto';
+  // iOS Safari 對沒有掛在 DOM 上的 video 常常不載入畫面、seek 也不回應，掛一個看不見的在頁面上
+  vid.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+  document.body.appendChild(vid);
+  vid.src = p.dataUrl;
   await new Promise((res, rej) => {
     vid.oncanplay = res;
     vid.onerror = () => rej(new Error('影片無法載入'));
@@ -1715,13 +1751,12 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   let ts = startTs;
 
   for (let f = 0; f < frameCount; f++) {
-    vid.currentTime = (p.trimStart || 0) + f / CLIP_FPS;
-    await new Promise(r => { vid.onseeked = r; });
+    let t = (p.trimStart || 0) + f / CLIP_FPS;
+    if (isFinite(vid.duration) && vid.duration > 0) t = Math.min(t, Math.max(0, vid.duration - 0.05));
+    await seekVideo(vid, t);
 
     // backpressure：encoder queue 太滿就等一下
-    while (encoder.encodeQueueSize > 10) {
-      await new Promise(r => setTimeout(r, 16));
-    }
+    await waitEncoderQueue(encoder, 10);
 
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
     const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
@@ -1737,7 +1772,9 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
     ts += frameDurUs;
   }
 
-  vid.src = '';
+  vid.removeAttribute('src');
+  vid.load();
+  vid.remove();
   return ts;
 }
 
