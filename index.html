@@ -1361,6 +1361,7 @@ async function makeVideoLocally() {
     }
 
     let tsUs = 0;
+    const skipped = []; // 讀不到的照片直接略過，不讓整支影片失敗
     const clipAudioRanges = []; // {startSec, endSec, dataUrl} 記錄影片原聲／照片語音的段落位置
 
     // 片頭
@@ -1386,9 +1387,10 @@ async function makeVideoLocally() {
         tsUs = await encodeCollage(p, ctx, canvas, videoEncoder, W, H, tsUs);
         if (p.audioUrl) clipAudioRanges.push({ kind: 'narration', startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.audioUrl, includeAudio: true, trimStart: 0 });
       } else {
-        const bmp = await loadBitmap(p.dataUrl);
-        const sharpBmp = await sharpenBitmap(bmp);
-        bmp.close();
+        let bmp;
+        try { bmp = await loadBitmap(p.dataUrl, p.name); }
+        catch (err) { console.warn(err); skipped.push(p.name || `第 ${i + 1} 個素材`); continue; }
+        const sharpBmp = await sharpenSafe(bmp);
         tsUs = await encodeKenBurns(p, sharpBmp, ctx, canvas, videoEncoder, W, H, tsUs, i);
         sharpBmp.close();
         if (p.audioUrl) clipAudioRanges.push({ kind: 'narration', startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.audioUrl, includeAudio: true, trimStart: 0 });
@@ -1486,7 +1488,8 @@ async function makeVideoLocally() {
     const blob = new Blob([target.buffer], { type: 'video/mp4' });
     const mb   = (blob.size / 1024 / 1024).toFixed(1);
     setProgress(100);
-    setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
+    setStatus('success', `🎉 影片製作完成！大小：${mb} MB` +
+      (skipped.length ? `。⚠️ 以下 ${skipped.length} 張照片讀取失敗已略過（可能已被手機清除，請刪掉後重新選取）：${skipped.join('、')}` : ''));
     dlLink.href     = URL.createObjectURL(blob);
     dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
@@ -1499,7 +1502,7 @@ async function makeVideoLocally() {
       return makeVideoRemote();
     }
     setProgress(0);
-    setStatus('error', `❌ 製作失敗：${e.message}`);
+    setStatus('error', `❌ 製作失敗：${errText(e)}`);
     document.getElementById('make-btn').disabled = false;
   }
 }
@@ -1590,9 +1593,12 @@ async function encodeCollage(p, ctx, canvas, encoder, W, H, startTs) {
   const frameDurUs = Math.round(1_000_000 / KB_FPS);
   const ZOOM = 0.05;
 
-  const rawBmps = await Promise.all(p.items.map(it => loadBitmap(it.dataUrl)));
-  const bmps = await Promise.all(rawBmps.map(b => sharpenBitmap(b)));
-  rawBmps.forEach(b => b.close());
+  const bmps = [];
+  for (const it of p.items) {
+    let b = null;
+    try { b = await sharpenSafe(await loadBitmap(it.dataUrl, it.name)); } catch (err) { console.warn(err); }
+    bmps.push(b);
+  }
   const layout = getCollageLayout(bmps.length, W, H, p.splitRatio);
 
   let ts = startTs;
@@ -1641,7 +1647,7 @@ async function encodeCollage(p, ctx, canvas, encoder, W, H, startTs) {
     frame.close();
     ts += frameDurUs;
   }
-  bmps.forEach(b => b.close());
+  bmps.forEach(b => b && b.close());
   return ts;
 }
 
@@ -1694,6 +1700,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
       frame.close();
       ts += frameDurUs;
     }
+    releaseCanvas(bgCanvas);
     return ts;
   }
 
@@ -1724,6 +1731,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
     frame.close();
     ts += frameDurUs;
   }
+  releaseCanvas(bgCanvas);
   return ts;
 }
 
@@ -1778,13 +1786,33 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   return ts;
 }
 
-function loadBitmap(src) {
+// 讀取照片；<img> 失敗時改用 fetch+blob 再試一次，錯誤一律包成有訊息的 Error
+function loadBitmap(src, name) {
+  const label = name ? `照片「${name}」` : '照片';
+  const viaBlob = () => fetch(src).then(r => r.blob()).then(b => createImageBitmap(b));
   return new Promise((res, rej) => {
     const img = new Image();
-    img.onload  = () => createImageBitmap(img).then(res).catch(rej);
-    img.onerror = rej;
+    const fail = () => viaBlob().then(res).catch(() => rej(new Error(`${label}讀取失敗，可能已被手機清除，請刪掉後重新選取`)));
+    img.onload  = () => createImageBitmap(img).then(res).catch(fail);
+    img.onerror = fail;
     img.src = src;
   });
+}
+
+// 銳化失敗（iOS 記憶體不足時 getImageData 會丟錯）就用原圖，不讓整支影片失敗
+async function sharpenSafe(bmp) {
+  try { const out = await sharpenBitmap(bmp); bmp.close(); return out; }
+  catch (err) { console.warn('銳化失敗，改用原圖', err); return bmp; }
+}
+
+// iOS Safari 的 canvas 總記憶體有上限，用完的 canvas 要手動縮成 0 才會立即釋放
+function releaseCanvas(c) { if (c) { c.width = 0; c.height = 0; } }
+
+function errText(e) {
+  if (!e) return '未知錯誤';
+  if (e.message) return e.message;
+  if (e.type) return `讀取檔案失敗（${e.type}），請刪掉有問題的素材後重新選取`;
+  return String(e);
 }
 
 // Unsharp Mask 銳化：改善 LINE 壓縮造成的模糊（在 canvas 層做，不改原始檔）
@@ -1818,7 +1846,9 @@ async function sharpenBitmap(bmp) {
   }
   await new Promise(r => setTimeout(r, 0)); // 讓 UI 喘口氣
   octx.putImageData(orig, 0, 0);
-  return createImageBitmap(oc);
+  const out = await createImageBitmap(oc);
+  releaseCanvas(oc); releaseCanvas(blurC);
+  return out;
 }
 
 function drawCover(ctx, bmp, W, H) {
@@ -2099,7 +2129,7 @@ async function makeVideoRemote() {
 
   } catch (e) {
     setProgress(0);
-    setStatus('error', `❌ 製作失敗：${e.message}`);
+    setStatus('error', `❌ 製作失敗：${errText(e)}`);
     btn.disabled = false;
   }
 }
