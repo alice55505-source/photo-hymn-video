@@ -1555,7 +1555,9 @@ async function makeVideoLocally() {
       setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
     }
     const st = document.getElementById('status-box');
-    st.textContent += `\n［診斷・本機］音樂${decoded.duration.toFixed(0)}s 影片${totalSec.toFixed(0)}s 峰值${aacTrack.peak.toFixed(2)}｜${audioTried.join(' ')}｜asc ${Array.from(audioDesc).map(x => x.toString(16).padStart(2, '0')).join('')}｜${(navigator.userAgent.match(/OS [\d_]+/) || [''])[0]}`;
+    try {
+      st.textContent += `\n［診斷・本機］音樂${decodedRaw.duration.toFixed(0)}s 影片${totalSec.toFixed(0)}s 峰值${aacTrack.peak.toFixed(2)}｜${audioTried.join(' ')}｜asc ${Array.from(audioDesc).map(x => x.toString(16).padStart(2, '0')).join('')}｜${(navigator.userAgent.match(/OS [\d_]+/) || [''])[0]}`;
+    } catch {}
     st.style.whiteSpace = 'pre-line';
     dlLink.href     = URL.createObjectURL(blob);
     dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
