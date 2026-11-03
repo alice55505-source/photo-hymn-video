@@ -1722,32 +1722,19 @@ async function encodeCollage(p, ctx, canvas, encoder, W, H, startTs) {
 }
 
 // Ken Burns 緩慢縮放效果（照片用，24fps × 可調秒數，與主編碼幀率一致才不會縮放抖動）
-// 採用「模糊背景 + contain 主圖」：直式照片完整顯示，不裁切，黑邊用模糊版填滿
+// 採用「黑色背景 + contain 主圖」：直式照片完整顯示，不裁切，兩側留黑邊
 async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) {
   const KB_FPS      = 24;
   const totalFrames = Math.round((p.duration || 4) * KB_FPS);
   const frameDurUs  = Math.round(1_000_000 / KB_FPS);
   const containScale = Math.min(W / bmp.width, H / bmp.height); // 完整顯示，不裁切
-  const coverScale   = Math.max(W / bmp.width, H / bmp.height); // 填滿畫面用（背景）
   const ZOOM = 0.08;
-
-  // 預先把模糊背景畫好一次，避免每幀都重算 blur（手機很慢）
-  const bgCanvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
-  const bgCtx = bgCanvas.getContext('2d');
-  bgCtx.filter = 'blur(32px) brightness(0.55)';
-  const bgSc = coverScale * 1.05;
-  bgCtx.drawImage(bmp,
-    (W - bmp.width  * bgSc) / 2,
-    (H - bmp.height * bgSc) / 2,
-    bmp.width  * bgSc,
-    bmp.height * bgSc);
-  bgCtx.filter = 'none';
 
   const zoomIn = (idx % 2 === 0);
   const z0 = zoomIn ? 1.0 : 1 + ZOOM;
   const z1 = zoomIn ? 1 + ZOOM : 1.0;
 
-  // 直式照片已設定 16:9 裁剪框：source-rect drawImage，不需模糊背景
+  // 直式照片已設定 16:9 裁剪框：source-rect drawImage
   const hasCrop = (p.cropY !== undefined) && (bmp.height > bmp.width * 9 / 16 * 1.05);
   if (hasCrop) {
     const srcW = bmp.width;
@@ -1770,7 +1757,6 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
       frame.close();
       ts += frameDurUs;
     }
-    releaseCanvas(bgCanvas);
     return ts;
   }
 
@@ -1781,7 +1767,6 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
 
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-    ctx.drawImage(bgCanvas, 0, 0); // 直接貼預算好的模糊背景
 
     // 主圖：contain + Ken Burns，完整顯示不裁切
     const sc = containScale * zoom;
@@ -1801,7 +1786,6 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
     frame.close();
     ts += frameDurUs;
   }
-  releaseCanvas(bgCanvas);
   return ts;
 }
 
