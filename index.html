@@ -1475,10 +1475,9 @@ async function makeVideoLocally() {
           }
           let m;
           if (!audioMetaSent) {
-            const d = meta?.decoderConfig?.description;
             m = { decoderConfig: {
               codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2,
-              description: (d && d.byteLength >= 2) ? d : AAC_ASC
+              description: normalizeAacAsc(meta?.decoderConfig?.description, AAC_ASC)
             } };
             audioMetaSent = true;
           }
@@ -1487,7 +1486,7 @@ async function makeVideoLocally() {
           if (audioTs0 === null) audioTs0 = rawTs;
           const ts = Math.max(audioLastTs, rawTs - audioTs0);
           audioLastTs = ts;
-          muxer.addAudioChunkRaw(data, chunk.type || 'key', ts, dur, m);
+          muxer.addAudioChunkRaw(data, 'key', ts, dur, m); // AAC 每一幀都可獨立解碼；iOS 可能標成 delta，會讓 stss 錯誤導致 iPhone 播放無聲
           audioChunkCount++;
         } catch (err) {
           audioError = err;
@@ -2010,6 +2009,33 @@ function trimLeadingSilence(buffer, maxLeadSec = 1.0) {
 }
 
 // 從 AudioBuffer 裁切並循環填充，開頭/結尾套漸入漸出（fade in/out）
+// iOS 的 AudioEncoder 給的 description 可能是 Apple magic cookie（完整 ES_Descriptor，0x03 開頭），
+// 不是 MP4 esds 需要的 AudioSpecificConfig。直接塞進去會變成巢狀描述，iPhone 播放時整條音軌無聲。
+// 這裡解出真正的 ASC，並驗證是 AAC-LC / 44.1kHz / 立體聲，不符就用固定值。
+function normalizeAacAsc(desc, fallback) {
+  try {
+    if (!desc || !desc.byteLength) return fallback;
+    let b = ArrayBuffer.isView(desc) ? new Uint8Array(desc.buffer, desc.byteOffset, desc.byteLength) : new Uint8Array(desc);
+    if (b[0] === 0x03 || b[0] === 0x04) { // ES_Descriptor / DecoderConfigDescriptor → 找 tag 0x05 (DecoderSpecificInfo)
+      let found = null;
+      for (let i = 0; i < b.length - 2; i++) {
+        if (b[i] !== 0x05) continue;
+        let j = i + 1, len = 0, k = 0;
+        while (k < 4 && j < b.length) { const v = b[j++]; len = (len << 7) | (v & 0x7F); k++; if (!(v & 0x80)) break; }
+        if (len >= 2 && len <= 5 && j + len <= b.length) { found = b.slice(j, j + len); break; }
+      }
+      if (!found) return fallback;
+      b = found;
+    }
+    if (b.length < 2) return fallback;
+    const objType = b[0] >> 3;
+    const srIdx   = ((b[0] & 0x07) << 1) | (b[1] >> 7);
+    const ch      = (b[1] >> 3) & 0x0F;
+    if (objType !== 2 || srIdx !== 4 || ch !== 2) return fallback;
+    return b.slice(0, 2);
+  } catch { return fallback; }
+}
+
 function buildAudioData(decoded, offsetFrames, numFrames, totalFrames = 0, fadeOutFrames = 0, clipAudioBuffers = []) {
   const BG_LEVEL   = 0.45;  // 背景音樂固定音量（全程一致，比語音小聲，避免蓋過說話聲、也避免混音時爆音）
   const DUCK       = 0.15;  // 影片段落原聲時，背景音樂再降到 BG_LEVEL 的 15%（不含照片語音）
