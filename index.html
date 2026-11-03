@@ -1555,11 +1555,6 @@ async function makeVideoLocally() {
     } else {
       setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
     }
-    const st = document.getElementById('status-box');
-    try {
-      st.textContent += `\n［診斷・本機］音樂${decodedRaw.duration.toFixed(0)}s 影片${totalSec.toFixed(0)}s 峰值${aacTrack.peak.toFixed(2)}｜${audioTried.join(' ')}｜asc ${Array.from(audioDesc).map(x => x.toString(16).padStart(2, '0')).join('')}｜${(navigator.userAgent.match(/OS [\d_]+/) || [''])[0]}`;
-    } catch {}
-    st.style.whiteSpace = 'pre-line';
     dlLink.href     = URL.createObjectURL(blob);
     dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
@@ -2202,7 +2197,7 @@ async function makeVideoRemote() {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const blob = new Blob([bytes], { type: 'video/mp4' });
     const mb   = (blob.size / 1024 / 1024).toFixed(1);
-    setStatus('success', `🎉 影片製作完成！大小：${mb} MB（［診斷・伺服器］）`);
+    setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
     dlLink.href = URL.createObjectURL(blob);
     dlLink.download = `幻燈片_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
     dlLink.style.display = 'block';
