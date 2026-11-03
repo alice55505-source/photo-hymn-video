@@ -629,6 +629,7 @@
     <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
     <div id="status-box"></div>
     <a id="download-link" href="#" download="slideshow.mp4">⬇️ &nbsp;下載影片</a>
+    <button id="clear-all-btn" type="button" onclick="clearAll()" style="display:block;width:100%;margin-top:16px;padding:14px;border:2px solid var(--border);border-radius:14px;background:#fff;color:var(--muted);font-size:1.1rem;cursor:pointer;">🗑️ 全部清除，重新開始</button>
   </div>
 
 </div>
@@ -2566,6 +2567,41 @@ async function restoreDraft(draft) {
   updateSummary();
   checkReady();
   renderMusicGrid();
+}
+
+// ── 全部清除 ──
+async function clearAll() {
+  if (!confirm('確定要全部清除嗎？照片、影片、文字、片頭片尾、音樂選擇都會刪除，無法復原。')) return;
+  stopAllPreview();
+  for (const p of photos) {
+    if (p.audioUrl) URL.revokeObjectURL(p.audioUrl);
+    if (p.dataUrl && p.dataUrl.startsWith('blob:')) URL.revokeObjectURL(p.dataUrl);
+    for (const it of (p.items || [])) if (it.dataUrl && it.dataUrl.startsWith('blob:')) URL.revokeObjectURL(it.dataUrl);
+  }
+  photos.length = 0;
+  if (collageMode) toggleCollageMode();
+  collageSelected.clear();
+  document.getElementById('photo-input').value = '';
+  clearIntroPhoto();
+  clearOutroPhoto();
+  document.getElementById('intro-title').value = '';
+  document.getElementById('outro-title').value = '';
+  if (uploadedMusic) removeUploadedMusic();
+  selectedMusic = null;
+  document.querySelectorAll('.music-card').forEach(c => c.classList.remove('selected'));
+  const st = document.getElementById('status-box');
+  st.style.display = 'none'; st.textContent = '';
+  document.getElementById('progress-bar-wrap').style.display = 'none';
+  document.getElementById('progress-bar').style.width = '0';
+  const dl = document.getElementById('download-link');
+  dl.style.display = 'none';
+  if (dl.href.startsWith('blob:')) URL.revokeObjectURL(dl.href);
+  document.getElementById('draft-banner')?.remove();
+  await clearDraft();
+  renderPhotoList();
+  updateSummary();
+  checkReady();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // 不小心下拉重整／滑掉分頁時，跳原生確認視窗擋一下
