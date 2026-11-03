@@ -1447,83 +1447,100 @@ async function makeVideoLocally() {
       throw new Error('AudioEncoder is not configured');
     }
 
-    let audioError = null;
-    let audioChunkCount = 0;
-    // iOS Safari 的 AudioEncoder 輸出跟 Chrome 不同，直接丟給 muxer 會變成無聲：
-    //  1) chunk.duration 可能是 null → muxer 丟錯（在 callback 內被吞掉，整條音軌消失）
-    //  2) meta.decoderConfig.description 可能沒有 → esds 缺 AudioSpecificConfig，播放器無聲
-    //  3) 可能輸出帶 ADTS 標頭的 AAC → MP4 不能有 ADTS 標頭
-    // 所以這裡自己整理資料再交給 muxer。
+    // iOS Safari 的 AudioEncoder 輸出跟 Chrome 不同，這裡自己整理資料再交給 muxer：
+    //  1) chunk.duration 可能是 null、第一個 timestamp 可能不是 0 → 自行補齊、歸零
+    //  2) description 是 Apple magic cookie（ES_Descriptor）→ normalizeAacAsc 解出 ASC
+    //  3) 可能帶 ADTS 標頭 → 去掉
+    //  4) 某些 iOS 版本餵 f32-planar 會編出整段靜音幀（每段約 6 bytes）→ 偵測後改用 f32 交錯 / s16 重編
     const AAC_FRAME_US = Math.round(1024 / 44100 * 1_000_000);
     const AAC_ASC = new Uint8Array([0x12, 0x10]); // AAC-LC, 44.1kHz, stereo
-    let audioMetaSent = false;
-    const adiag = { n: 0, first: null, desc: 'none', peak: 0 }; // 診斷用
-    let audioTs0 = null, audioLastTs = 0; // iOS 第一個 chunk 的 timestamp 可能不是 0（含 priming），自行歸零
-    const audioEncoder = new AudioEncoder({
-      output: (chunk, meta) => {
-        try {
-          let data = new Uint8Array(chunk.byteLength);
-          chunk.copyTo(data);
-          adiag.n++;
-          if (!adiag.first) {
-            const dd = meta?.decoderConfig?.description;
-            adiag.desc = dd ? Array.from(new Uint8Array(dd.buffer || dd, dd.byteOffset || 0, dd.byteLength)).map(x => x.toString(16).padStart(2, '0')).join('') : 'none';
-            adiag.first = `len${data.length} h${Array.from(data.subarray(0, 2)).map(x => x.toString(16).padStart(2, '0')).join('')} d${chunk.duration} t${chunk.timestamp} ${chunk.type}`;
-          }
-          if (data.length > 9 && data[0] === 0xFF && (data[1] & 0xF6) === 0xF0) {
-            data = data.subarray((data[1] & 0x01) ? 7 : 9); // 去掉 ADTS 標頭
-          }
-          let m;
-          if (!audioMetaSent) {
-            m = { decoderConfig: {
-              codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2,
-              description: normalizeAacAsc(meta?.decoderConfig?.description, AAC_ASC)
-            } };
-            audioMetaSent = true;
-          }
-          const dur = Number.isFinite(chunk.duration) && chunk.duration > 0 ? chunk.duration : AAC_FRAME_US;
-          const rawTs = Number.isFinite(chunk.timestamp) ? chunk.timestamp : audioLastTs;
-          if (audioTs0 === null) audioTs0 = rawTs;
-          const ts = Math.max(audioLastTs, rawTs - audioTs0);
-          audioLastTs = ts;
-          muxer.addAudioChunkRaw(data, 'key', ts, dur, m); // AAC 每一幀都可獨立解碼；iOS 可能標成 delta，會讓 stss 錯誤導致 iPhone 播放無聲
-          audioChunkCount++;
-        } catch (err) {
-          audioError = err;
-        }
-      },
-      error: e => { audioError = e; }
-    });
-    audioEncoder.configure({
-      codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000,
-      aac: { format: 'aac' }
-    });
-    // 等一個 microtask，讓非同步的 configure 錯誤有機會觸發 error callback
-    await new Promise(r => setTimeout(r, 0));
-    if (audioError || audioEncoder.state !== 'configured') {
-      throw new Error('AudioEncoder is not configured');
-    }
-
     const CHUNK = 4096;
     const totalFrames  = Math.ceil(totalSec * 44100);
     const fadeOutFrames = Math.round(2.5 * 44100); // 最後 2.5 秒漸出
-    let aTs = 0;
-    for (let off = 0; off < totalFrames; off += CHUNK) {
-      const n  = Math.min(CHUNK, totalFrames - off);
-      const pcm = buildAudioData(decoded, off, n, totalFrames, fadeOutFrames, clipAudioBuffers);
-      if (off % (CHUNK * 50) === 0) for (let k = 0; k < pcm.length; k += 7) { const v = Math.abs(pcm[k]); if (v > adiag.peak) adiag.peak = v; }
-      const ad = new AudioData({
-        format: 'f32-planar', sampleRate: 44100,
-        numberOfFrames: n, numberOfChannels: 2,
-        timestamp: aTs, data: pcm
+
+    const encodeAacTrack = async (format) => {
+      const chunks = [];
+      let err = null, desc = null, ts0 = null, lastTs = 0, bytes = 0, peak = 0;
+      const enc = new AudioEncoder({
+        output: (chunk, meta) => {
+          try {
+            let data = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(data);
+            if (data.length > 9 && data[0] === 0xFF && (data[1] & 0xF6) === 0xF0) {
+              data = data.subarray((data[1] & 0x01) ? 7 : 9); // 去掉 ADTS 標頭
+            }
+            if (!desc && meta?.decoderConfig?.description) desc = meta.decoderConfig.description;
+            const dur = Number.isFinite(chunk.duration) && chunk.duration > 0 ? chunk.duration : AAC_FRAME_US;
+            const rawTs = Number.isFinite(chunk.timestamp) ? chunk.timestamp : lastTs;
+            if (ts0 === null) ts0 = rawTs;
+            const ts = Math.max(lastTs, rawTs - ts0);
+            lastTs = ts;
+            chunks.push({ data, ts, dur });
+            bytes += data.length;
+          } catch (e) { err = e; }
+        },
+        error: e => { err = e; }
       });
-      audioEncoder.encode(ad);
-      ad.close();
-      aTs += Math.round((n / 44100) * 1_000_000);
+      enc.configure({
+        codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000,
+        aac: { format: 'aac' }
+      });
+      // 等一個 microtask，讓非同步的 configure 錯誤有機會觸發 error callback
+      await new Promise(r => setTimeout(r, 0));
+      if (err || enc.state !== 'configured') throw new Error('AudioEncoder is not configured');
+
+      let aTs = 0;
+      for (let off = 0; off < totalFrames; off += CHUNK) {
+        const n = Math.min(CHUNK, totalFrames - off);
+        const planar = buildAudioData(decoded, off, n, totalFrames, fadeOutFrames, clipAudioBuffers);
+        for (let k = 0; k < planar.length; k += 13) { const v = Math.abs(planar[k]); if (v > peak) peak = v; }
+        let data = planar;
+        if (format === 'f32' || format === 's16') {
+          data = format === 'f32' ? new Float32Array(2 * n) : new Int16Array(2 * n);
+          for (let i = 0; i < n; i++) for (let c = 0; c < 2; c++) {
+            const v = planar[c * n + i];
+            data[i * 2 + c] = format === 'f32' ? v : Math.round(v < 0 ? v * 32768 : v * 32767);
+          }
+        }
+        const ad = new AudioData({
+          format, sampleRate: 44100, numberOfFrames: n, numberOfChannels: 2, timestamp: aTs, data
+        });
+        enc.encode(ad);
+        ad.close();
+        aTs += Math.round((n / 44100) * 1_000_000);
+        if (enc.encodeQueueSize > 64) await new Promise(r => setTimeout(r, 0));
+        if (err) break;
+      }
+      await withTimeout(enc.flush(), 60000, 'ENCODER_STALL');
+      try { enc.close(); } catch {}
+      if (err) throw err;
+      return { chunks, desc, bytes, peak, avg: chunks.length ? bytes / chunks.length : 0, format };
+    };
+
+    const audioTried = [];
+    let aacTrack = null;
+    for (const fmt of ['f32-planar', 'f32', 's16']) {
+      let r;
+      try { r = await encodeAacTrack(fmt); }
+      catch (e) {
+        audioTried.push(`${fmt}:錯誤`);
+        if (e.message && e.message.includes('ENCODER_STALL')) throw e;
+        continue;
+      }
+      audioTried.push(`${fmt}:${r.chunks.length}段/平均${r.avg.toFixed(0)}B`);
+      if (!aacTrack || r.avg > aacTrack.avg) aacTrack = r;
+      // 正常 128kbps AAC 每段約 300 bytes；靜音幀只有個位數 bytes
+      if (r.peak < 0.01 || r.avg > 40) break;
+      setStatus('info', '🎵 背景音樂編碼異常，換一種方式重新編碼⋯⋯');
     }
-    await withTimeout(audioEncoder.flush(), 60000, 'ENCODER_STALL');
-    if (audioError) throw audioError;
-    if (audioChunkCount === 0 && totalFrames > 0) throw new Error('AudioEncoder is not configured');
+    if (!aacTrack || aacTrack.chunks.length === 0) throw new Error('AudioEncoder is not configured');
+    const audioDesc = normalizeAacAsc(aacTrack.desc, AAC_ASC);
+    aacTrack.chunks.forEach((c, i) => {
+      // AAC 每一幀都可獨立解碼，一律標 key（iOS 可能標成 delta，stss 會錯）
+      muxer.addAudioChunkRaw(c.data, 'key', c.ts, c.dur, i === 0 ? { decoderConfig: {
+        codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, description: audioDesc
+      } } : undefined);
+    });
 
     setProgress(96);
     setStatus('info', '📦 封裝影片⋯⋯');
@@ -1538,7 +1555,7 @@ async function makeVideoLocally() {
       setStatus('success', `🎉 影片製作完成！大小：${mb} MB`);
     }
     const st = document.getElementById('status-box');
-    st.textContent += `\n［診斷・本機］音樂${decoded.duration.toFixed(0)}s/${decoded.sampleRate}/${decoded.numberOfChannels}ch 峰值${adiag.peak.toFixed(2)}｜編碼${adiag.n}段 ${adiag.first}｜desc ${adiag.desc}｜${(navigator.userAgent.match(/OS [\d_]+/) || [''])[0]}`;
+    st.textContent += `\n［診斷・本機］音樂${decoded.duration.toFixed(0)}s 影片${totalSec.toFixed(0)}s 峰值${aacTrack.peak.toFixed(2)}｜${audioTried.join(' ')}｜asc ${Array.from(audioDesc).map(x => x.toString(16).padStart(2, '0')).join('')}｜${(navigator.userAgent.match(/OS [\d_]+/) || [''])[0]}`;
     st.style.whiteSpace = 'pre-line';
     dlLink.href     = URL.createObjectURL(blob);
     dlLink.download = `詩歌回顧_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.mp4`;
