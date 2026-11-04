@@ -1382,7 +1382,8 @@ async function makeVideoLocally() {
 
       const clipStartSec = tsUs / 1_000_000;
       if (p.type === 'video') {
-        tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs);
+        tsUs = await encodeVideoClipFrames(p, ctx, canvas, videoEncoder, W, H, tsUs,
+          r => setStatus('info', `🎬 合成中：第 ${i + 1} / ${photos.length} 個素材（影片 ${Math.round(r * 100)}%）⋯⋯`));
         clipAudioRanges.push({ kind: 'video', startSec: clipStartSec, endSec: tsUs / 1_000_000, dataUrl: p.dataUrl, includeAudio: p.includeAudio !== false, trimStart: p.trimStart || 0 });
       } else if (p.type === 'collage') {
         tsUs = await encodeCollage(p, ctx, canvas, videoEncoder, W, H, tsUs);
@@ -1417,9 +1418,12 @@ async function makeVideoLocally() {
       const actx = new AudioContext({ sampleRate: 44100 });
       for (const vr of clipAudioRanges) {
         try {
-          const res  = await fetch(vr.dataUrl);
-          const buf  = await res.arrayBuffer();
-          const dec  = await actx.decodeAudioData(buf);
+          // iOS 解碼大型影片的音訊可能永遠不回應，加逾時，失敗就略過這段原聲
+          const dec = await withTimeout((async () => {
+            const res = await fetch(vr.dataUrl);
+            const buf = await res.arrayBuffer();
+            return actx.decodeAudioData(buf);
+          })(), 30000, 'AUDIO_DECODE_TIMEOUT');
           clipAudioBuffers.push({ ...vr, decoded: dec });
         } catch {
           clipAudioBuffers.push({ ...vr, decoded: null });
@@ -1785,7 +1789,7 @@ async function encodeKenBurns(p, bmp, ctx, canvas, encoder, W, H, startTs, idx) 
 }
 
 // 影片剪輯：優先用 requestVideoFrameCallback 實時擷取，不支援則 seek
-async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
+async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs, onProgress) {
   const vid = document.createElement('video');
   vid.muted = true;
   vid.playsInline = true;
@@ -1805,28 +1809,70 @@ async function encodeVideoClipFrames(p, ctx, canvas, encoder, W, H, startTs) {
   const CLIP_FPS   = 10;
   const frameCount = Math.round(p.duration * CLIP_FPS);
   const frameDurUs = Math.round(1_000_000 / CLIP_FPS);
+  const t0  = p.trimStart || 0;
+  const maxT = () => (isFinite(vid.duration) && vid.duration > 0) ? Math.max(0, vid.duration - 0.05) : Infinity;
   let ts = startTs;
+  let f  = 0;
 
-  for (let f = 0; f < frameCount; f++) {
-    let t = (p.trimStart || 0) + f / CLIP_FPS;
-    if (isFinite(vid.duration) && vid.duration > 0) t = Math.min(t, Math.max(0, vid.duration - 0.05));
-    await seekVideo(vid, t);
-
-    // backpressure：encoder queue 太滿就等一下
+  const emit = async () => {
     await waitEncoderQueue(encoder, 10);
-
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
-    ctx.drawImage(vid,
-      (W - vid.videoWidth  * scale) / 2,
-      (H - vid.videoHeight * scale) / 2,
-      vid.videoWidth * scale, vid.videoHeight * scale);
+    if (vid.videoWidth && vid.videoHeight) {
+      const scale = Math.min(W / vid.videoWidth, H / vid.videoHeight);
+      ctx.drawImage(vid,
+        (W - vid.videoWidth  * scale) / 2,
+        (H - vid.videoHeight * scale) / 2,
+        vid.videoWidth * scale, vid.videoHeight * scale);
+    }
     if (p.text) drawTextOverlay(ctx, p.text, W, H);
-
     const frame = new VideoFrame(canvas, { timestamp: ts, duration: frameDurUs });
     encoder.encode(frame, { keyFrame: f === 0 || f % 30 === 0 });
     frame.close();
     ts += frameDurUs;
+    f++;
+    if (onProgress && f % 10 === 0) onProgress(f / frameCount);
+  };
+
+  // 主要方式：靜音播放影片，邊播邊擷取畫面。
+  // iOS 逐格 seek 非常慢（每次都要從關鍵幀重新解碼，常常等不到 seeked），影片一長就像卡住。
+  let playOk = false;
+  try {
+    await seekVideo(vid, Math.min(t0, maxT()));
+    await withTimeout(vid.play(), 5000, 'PLAY_TIMEOUT');
+    playOk = true;
+  } catch { try { vid.pause(); } catch {} }
+
+  if (playOk) {
+    const waitFrame = () => new Promise(r => {
+      let done = false; const fin = () => { if (!done) { done = true; r(); } };
+      if (vid.requestVideoFrameCallback) vid.requestVideoFrameCallback(fin);
+      setTimeout(fin, 50);
+    });
+    let lastCT = vid.currentTime, lastMove = Date.now();
+    while (f < frameCount) {
+      const target = Math.min(t0 + f / CLIP_FPS, maxT());
+      if (vid.ended || vid.currentTime >= maxT() || vid.currentTime + 0.001 >= target) {
+        if (encoder.encodeQueueSize > 10) {
+          vid.pause();
+          await waitEncoderQueue(encoder, 10);
+          if (!vid.ended) await vid.play().catch(() => {});
+        }
+        await emit();
+        continue;
+      }
+      if (vid.paused && !vid.ended) await vid.play().catch(() => {});
+      await waitFrame();
+      if (vid.currentTime !== lastCT) { lastCT = vid.currentTime; lastMove = Date.now(); }
+      else if (document.hidden) lastMove = Date.now();
+      else if (Date.now() - lastMove > 4000) break; // 播放卡住 → 剩下的改用 seek
+    }
+    try { vid.pause(); } catch {}
+  }
+
+  // 後備：逐格 seek（播放被擋，例如低耗電模式，或播放中途卡住）
+  while (f < frameCount) {
+    await seekVideo(vid, Math.min(t0 + f / CLIP_FPS, maxT()));
+    await emit();
   }
 
   vid.removeAttribute('src');
